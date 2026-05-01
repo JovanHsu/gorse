@@ -877,7 +877,7 @@ func (d *SQLDatabase) GetUser(ctx context.Context, userId string) (User, error) 
 	var result *sql.Rows
 	var err error
 	result, err = d.gormDB.WithContext(ctx).Table(d.UsersTable()).
-		Select("user_id, labels, comment").
+		Select("user_id, gender, labels, comment").
 		Where("user_id = ?", userId).Rows()
 	if err != nil {
 		return User{}, errors.Trace(err)
@@ -924,7 +924,7 @@ func (d *SQLDatabase) GetUsers(ctx context.Context, cursor string, n int) (strin
 	cursorUser := string(buf)
 	tx := d.gormDB.WithContext(ctx).
 		Table(d.UsersTable()).
-		Select("user_id, labels, comment")
+		Select("user_id, gender, labels, comment")
 	if cursorUser != "" {
 		tx.Where("user_id >= ?", cursorUser)
 	}
@@ -955,7 +955,7 @@ func (d *SQLDatabase) GetUserStream(ctx context.Context, batchSize int) (chan []
 		defer close(userChan)
 		defer close(errChan)
 		// send query
-		result, err := d.gormDB.WithContext(ctx).Table(d.UsersTable()).Select("user_id, labels, comment").Rows()
+		result, err := d.gormDB.WithContext(ctx).Table(d.UsersTable()).Select("user_id, gender, labels, comment").Rows()
 		if err != nil {
 			errChan <- errors.Trace(err)
 			return

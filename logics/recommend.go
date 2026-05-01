@@ -61,6 +61,8 @@ func NewRecommender(config config.RecommendConfig, cacheClient cache.Database, d
 		return nil, errors.Trace(err)
 	}
 	excludeSet := mapset.NewSet[string]()
+	// Exclude the requesting user themselves from recommendations (for dating/social apps)
+	excludeSet.Add(userId)
 	coldstart := true
 	for _, feedback := range userFeedback {
 		// Negative feedback items should always be excluded (highest priority)

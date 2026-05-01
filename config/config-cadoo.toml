@@ -43,10 +43,19 @@ recommenders = ["latest"]
 name = "neighbors"
 type = "items"
 
-[recommend.non-personalized]
+[[recommend.non-personalized]]
 name = "popular"
 score = "count(feedback, .FeedbackType == 'like')"
 filter = "(now() - item.Timestamp).Hours() < 720"
+
+[[recommend.non-personalized]]
+name = "cold_start_fresh"
+score = "count(feedback, .FeedbackType == 'like')"
+filter = "(now() - item.Timestamp).Hours() < 168"
+
+[[recommend.non-personalized]]
+name = "cold_start_quality"
+score = "count(feedback, .FeedbackType == 'like')"
 
 # 生命周期感知召回池配置
 [recommend.lifecycle]
@@ -132,14 +141,3 @@ enabled = true
 vip_label_key = "tier"
 vip_label_value = "vip"
 manual_override = true
-
-# 冷启动非个性化推荐
-[[recommend.non-personalized]]
-name = "cold_start_fresh"
-score = "count(feedback, .FeedbackType == 'like')"
-filter = "(now() - item.Timestamp).Hours() < 720"
-
-[[recommend.non-personalized]]
-name = "cold_start_quality"
-score = "get(item.Labels, 'like_rate')"
-filter = "get(item.Labels, 'like_rate') > 0.2"
