@@ -150,6 +150,26 @@ func (r *Recommender) IsColdStart() bool {
 	return r.coldstart
 }
 
+// getTargetGender returns the gender to filter recommendations for.
+// M → recommend F, F → recommend M, O → no filter (return "").
+func (r *Recommender) getTargetGender(ctx context.Context) string {
+	user, err := r.dataClient.GetUser(ctx, r.userId)
+	if err != nil {
+		return ""
+	}
+	if user.Gender == nil {
+		return ""
+	}
+	switch *user.Gender {
+	case "M":
+		return "F"
+	case "F":
+		return "M"
+	default:
+		return "" // O or unset: no gender filter
+	}
+}
+
 func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.Score, err error) {
 	// Lifecycle-aware pool blending (Phase 2)
 	if r.lifecycleProfile != nil && len(r.config.RecallPools) > 0 {
@@ -195,6 +215,7 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 // recommendWithPools blends recommendations from multiple lifecycle pools using soft weights.
 // Each pool contributes recommenders, and the final score is weighted by the pool's weight.
 // Items appearing in multiple pools accumulate weights from all pools.
+// Gender cross-filtering: users are recommended to opposite-gender users only (M→F, F→M).
 func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cache.Score, error) {
 	// Get pool blends for this user's lifecycle profile
 	poolBlends := r.lifecycleClassifier.GetPoolsForProfile(r.lifecycleProfile)
@@ -203,6 +224,10 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		scores, _, err := r.RecommendSequential(ctx, nil, limit, r.config.Ranker.Recommenders...)
 		return scores, err
 	}
+
+	// Determine target gender for cross-filtering (M→F, F→M, O→all)
+	targetGender := r.getTargetGender(ctx)
+	canFilterByGender := targetGender != "" && targetGender != "O"
 
 	// Collect candidates from each pool, weighted by pool weight
 	type candidate struct {
@@ -252,10 +277,39 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		}
 	}
 
+	// Batch query items to get gender for cross-filtering
+	itemIds := make([]string, 0, len(candidates))
+	for id := range candidates {
+		itemIds = append(itemIds, id)
+	}
+	genderMap := make(map[string]string) // itemId → gender
+	if canFilterByGender && len(itemIds) > 0 {
+		items, err := r.dataClient.BatchGetItems(ctx, itemIds, data.GetOptions{SkipHidden: true})
+		if err != nil {
+			log.Logger().Warn("failed to batch get items for gender filter",
+				zap.String("user_id", r.userId),
+				zap.Error(err))
+		} else {
+			for _, it := range items {
+				if len(it.Categories) > 0 {
+					genderMap[it.ItemId] = it.Categories[0]
+				}
+			}
+		}
+	}
+
 	// Sort by weighted score descending
 	sorted := make([]cache.Score, 0, len(candidates))
 	for _, c := range candidates {
 		if c.score > 0 {
+			// Gender cross-filter: only recommend opposite-gender users
+			if canFilterByGender {
+				g := genderMap[c.itemId]
+				// Skip items with no gender or same gender as user
+				if g == "" || g == targetGender {
+					continue
+				}
+			}
 			sorted = append(sorted, cache.Score{
 				Id:        c.itemId,
 				Score:     c.score,
