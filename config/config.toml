@@ -1,6 +1,6 @@
 [database]
 
-# The database for caching, support Redis, MySQL, Postgres and MongoDB:
+# 缓存数据库，支持 Redis、MySQL、Postgres 和 MongoDB：
 #   redis://<user>:<password>@<host>:<port>/<db_number>
 #   rediss://<user>:<password>@<host>:<port>/<db_number>
 #   redis+cluster://<user>:<password>@<host>:<port>[?addr=<host2>:<port2>&addr=<host3>:<port3>]
@@ -13,7 +13,7 @@
 #   sqlite://<path>
 cache_store = "redis://localhost:6379/0"
 
-# The database for persist data, support MySQL, Postgres, ClickHouse and MongoDB:
+# 数据持久化数据库，支持 MySQL、Postgres、ClickHouse 和 MongoDB：
 #   mysql://[username[:password]@][protocol[(address)]]/dbname[?param1=value1&...&paramN=valueN]
 #   postgres://bob:secret@1.2.3.4:5432/mydb?sslmode=verify-full
 #   postgresql://bob:secret@1.2.3.4:5432/mydb?sslmode=verify-full
@@ -25,186 +25,185 @@ cache_store = "redis://localhost:6379/0"
 #   sqlite://<path>
 data_store = "mysql://gorse:gorse_pass@tcp(localhost:3306)/gorse"
 
-# The naming prefix for tables (collections, keys) in databases. The default value is empty.
+# 数据库中表（集合、键）的命名前缀。默认为空。
 table_prefix = ""
 
-# The naming prefix for tables (collections, keys) in cache storage databases. The default value is `table_prefix`.
+# 缓存存储数据库中表（集合、键）的命名前缀。默认为 `table_prefix`。
 cache_table_prefix = ""
 
-# The naming prefix for tables (collections, keys) in data storage databases. The default value is `table_prefix`.
+# 数据存储数据库中表（集合、键）的命名前缀。默认为 `table_prefix`。
 data_table_prefix = ""
 
 [database.mysql]
 
-# Transaction isolation level. The default value is "READ-UNCOMMITTED".
+# 事务隔离级别。默认为 "READ-UNCOMMITTED"。
 isolation_level = "READ-UNCOMMITTED"
 
-# Maximum number of open connections to the database. Set to 0 to keep the driver default.
+# 数据库最大打开连接数。设为 0 使用驱动默认值。
 max_open_conns = 0
 
-# Maximum number of idle connections to the database. Set to 0 to keep the driver default.
+# 数据库最大空闲连接数。设为 0 使用驱动默认值。
 max_idle_conns = 0
 
-# Maximum amount of time a connection may be reused. Set to "0s" to keep the driver default.
+# 连接最大复用时间。设为 "0s" 使用驱动默认值。
 conn_max_lifetime = "0s"
 
 [database.postgres]
 
-# Maximum number of open connections to the database. The default value is 64.
+# 数据库最大打开连接数。默认为 64。
 max_open_conns = 64
 
-# Maximum number of idle connections to the database. The default value is 64.
+# 数据库最大空闲连接数。默认为 64。
 max_idle_conns = 64
 
-# Maximum amount of time a connection may be reused. The default value is "1m".
+# 连接最大复用时间。默认为 "1m"。
 conn_max_lifetime = "1m"
 
 [database.redis]
 
-# The maximum number of results to be returned by the FT.SEARCH command if LIMIT is used
+# FT.SEARCH 命令使用 LIMIT 时返回的最大结果数。
 max_search_results = 10000
 
 [master]
 
-# GRPC port of the master node. The default value is 8086.
+# Master 节点的 gRPC 端口。默认为 8086。
 port = 8086
 
-# gRPC host of the master node. The default values is "0.0.0.0".
+# Master 节点的 gRPC 主机地址。默认为 "0.0.0.0"。
 host = "0.0.0.0"
 
-# Enable SSL for the gRPC communication. The default value is false.
+# 启用 gRPC 通信的 SSL。默认为 false。
 ssl_mode = false
 
-# SSL certification authority for the gRPC communication.
+# gRPC 通信的 SSL 证书颁发机构。
 ssl_ca = ""
 
-# SSL certification for the gRPC communication.
+# gRPC 通信的 SSL 证书。
 ssl_cert = ""
 
-# SSL certification key for the gRPC communication.
+# gRPC 通信的 SSL 证书私钥。
 ssl_key = ""
 
-# HTTP port of the master node. The default values is 8088.
+# Master 节点的 HTTP 端口。默认为 8088。
 http_port = 8088
 
-# HTTP host of the master node. The default values is "0.0.0.0".
+# Master 节点的 HTTP 主机地址。默认为 "0.0.0.0"。
 http_host = "0.0.0.0"
 
-# AllowedDomains is a list of allowed values for Http Origin.
-# The list may contain the special wildcard string ".*" ; all is allowed
-# If empty all are allowed.
+# 允许的 Http Origin 值的列表。
+# 可包含特殊通配符字符串 ".*" 表示允许所有来源。
+# 为空表示允许所有来源。
 http_cors_domains = []
 
-# AllowedMethods is either empty or has a list of http methods names. Checking is case-insensitive.
+# 允许的 HTTP 方法列表，为空表示允许所有方法。检查不区分大小写。
 http_cors_methods = []
 
-# Number of working jobs in the master node. The default value is 1.
+# Master 节点的工作线程数。默认为 1。
 n_jobs = 1
 
-# Meta information timeout. The default value is 10s.
+# 元信息超时时间。默认为 10s。
 meta_timeout = "10s"
 
-# Username for the master node dashboard.
+# Master 节点仪表板的登录用户名。
 dashboard_user_name = ""
 
-# Password for the master node dashboard.
+# Master 节点仪表板的登录密码。
 dashboard_password = ""
 
-# Secret key for admin APIs (SSL required).
+# 管理 API 的密钥（需要 SSL）。
 admin_api_key = ""
 
 [server]
 
-# Default number of returned items. The default value is 10.
+# 默认返回的物品数量。默认为 10。
 default_n = 10
 
-# Secret key for RESTful APIs (SSL required).
+# RESTful API 的密钥（需要 SSL）。
 api_key = ""
 
-# Clock error in the cluster. The default value is 5s.
+# 集群中的时钟误差。默认为 5s。
 clock_error = "5s"
 
-# Insert new users while inserting feedback. The default value is true.
+# 插入反馈时自动创建新用户。默认为 true。
 auto_insert_user = true
 
-# Insert new items while inserting feedback. The default value is true.
+# 插入反馈时自动创建新物品。默认为 true。
 auto_insert_item = true
 
-# Server-side cache expire time. The default value is 10s.
+# 服务端缓存过期时间。默认为 10s。
 cache_expire = "10s"
 
 [recommend]
 
-# The cache size for recommended/popular/latest items. The default value is 10.
+# 推荐/热门/最新物品的缓存大小。默认为 10。
 cache_size = 100
 
-# Recommended cache expire time. The default value is 72h.
+# 推荐缓存过期时间。默认为 72h。
 cache_expire = "72h"
 
-# The context size for online recommendations. Online recommendations can't use all user feedbacks to generate
-# recommendations for efficiency consideration. Instead, only the latest `context_size` feedbacks are used.
-# The default value is 100.
+# 在线推荐的上下文大小。出于效率考虑，在线推荐不会使用用户的所有反馈来生成推荐，
+# 而只使用最近的 `context_size` 条反馈。默认为 100。
 context_size = 100
 
-# The time-to-live (days) of active users, 0 means disabled. Recommendation won't be cached for inactive users. The default value is 0.
+# 活跃用户的存活时间（天），0 表示禁用。不活跃用户的推荐不会被缓存。默认为 0。
 active_user_ttl = 0
 
 [recommend.data_source]
 
-# The feedback types for positive events.
+# 正向反馈的事件类型。
 positive_feedback_types = ["star","like","read>=3"]
 
-# The feedback types for read events.
+# 已读反馈的事件类型。
 read_feedback_types = ["read"]
 
-# The time-to-live (days) of positive feedback, 0 means disabled. The default value is 0.
+# 正向反馈的存活时间（天），0 表示禁用。默认为 0。
 positive_feedback_ttl = 0
 
-# The time-to-live (days) of items, 0 means disabled. The default value is 0.
+# 物品的存活时间（天），0 表示禁用。默认为 0。
 item_ttl = 0
 
 [[recommend.non-personalized]]
 
-# The name of the leaderboard.
+# 排行榜名称。
 name = "most_starred_weekly"
 
-# The score function for items in the leaderboard.
+# 排行榜中物品的评分函数。
 score = "count(feedback, .FeedbackType == 'star')"
 
-# The filter for items in the leaderboard.
+# 排行榜中物品的过滤条件。
 filter = "(now() - item.Timestamp).Hours() < 168"
 
 [[recommend.item-to-item]]
 
-# The name of the item-to-item recommender.
+# 物品对物品推荐器的名称。
 name = "neighbors"
 
-# The type of the item-to-item recommender. There are three types:
-#   embedding: recommend by Euclidean distance of embeddings.
-#   tags: recommend by number of common tags.
-#   users: recommend by number of common users.
+# 物品对物品推荐器的类型。有三种类型：
+#   embedding: 通过嵌入向量的欧几里得距离推荐。
+#   tags: 通过共同标签数量推荐。
+#   users: 通过共同用户数量推荐。
 type = "embedding"
 
-# The column of the item embeddings. Leave blank if type is "users".
+# 物品嵌入向量的列名。如果 type 为 "users" 则留空。
 column = "item.Labels.embedding"
 
 [[recommend.user-to-user]]
 
-# The name of the user-to-user recommender.
+# 用户对用户推荐器的名称。
 name = "neighbors"
 
-# The type of the user-to-user recommender. There are three types:
-#   embedding: recommend by Euclidean distance of embeddings.
-#   tags: recommend by number of common tags.
-#   items: recommend by number of common items.
+# 用户对用户推荐器的类型。有三种类型：
+#   embedding: 通过嵌入向量的欧几里得距离推荐。
+#   tags: 通过共同标签数量推荐。
+#   items: 通过共同物品数量推荐。
 type = "items"
 
 [[recommend.external]]
 
-# The name of the external recommender.
+# 外部推荐器的名称。
 name = "trending"
 
-# The script to fetch external recommended items. The script should return a list of item IDs.
+# 获取外部推荐物品的脚本。脚本应返回物品 ID 列表。
 script = """
 const response = fetch("https://cdn.jsdelivr.net/gh/isboyjc/github-trending-api/data/daily/all.json");
 if (!response.ok) {
@@ -218,66 +217,66 @@ data["items"].map((item) => {
 
 [recommend.collaborative]
 
-# The type of collaborative filtering. Supported values:
-#   none: disable collaborative filtering.
-#   mf: matrix factorization.
+# 协同过滤的类型。支持的取值：
+#   none: 禁用协同过滤。
+#   mf: 矩阵分解。
 type = "mf"
 
-# The time period for model fitting. The default value is "60m".
+# 模型训练的时间周期。默认为 "60m"。
 fit_period = "60m"
 
-# The number of epochs for model fitting. The default value is 100.
+# 模型训练的轮数。默认为 100。
 fit_epoch = 100
 
-# The time period for hyperparameter optimization, set to 0 to disable. The default value is "0".
+# 超参数优化的时间周期，设为 0 表示禁用。默认为 "0"。
 optimize_period = "360m"
 
-# The number of trials for hyperparameter optimization. The default value is 10.
+# 超参数优化的试验次数。默认为 10。
 optimize_trials = 10
 
 [recommend.collaborative.early_stopping]
 
-# Number of epochs to wait if no improvement and then stop the training. The default value is 10.
+# 如果没有改进则等待的轮数，之后停止训练。默认为 10。
 patience = 10
 
 [recommend.replacement]
 
-# Replace historical items back to recommendations. The default value is false.
+# 将历史物品重新插入推荐列表。默认为 false。
 enable_replacement = false
 
-# Decay the weights of replaced items from positive feedbacks. The default value is 0.8.
+# 正向反馈中重新插入物品的衰减系数。默认为 0.8。
 positive_replacement_decay = 0.8
 
-# Decay the weights of replaced items from read feedbacks. The default value is 0.6.
+# 已读反馈中重新插入物品的衰减系数。默认为 0.6。
 read_replacement_decay = 0.6
 
 [recommend.ranker]
 
-# The type of the ranker. There are two types:
-#   none: no ranking (default).
-#   fm: factorization machines.
-#   llm: LLM-based reranker.
+# 排序器的类型。有三种类型：
+#   none: 不进行排序（默认）。
+#   fm: 因子分解机。
+#   llm: 基于 LLM 的重排序器。
 type = "fm"
 
-# The time period to refresh recommendation for inactive users. The default values is 120h.
+# 非活跃用户刷新推荐的时间周期。默认为 120h。
 cache_expire = "120h"
 
-# The recommenders used to fetch candidate items before ranking. The default values is all recommenders.
+# 排序前用于获取候选物品的推荐器。默认为所有推荐器。
 recommenders = ["latest", "collaborative", "non-personalized/most_starred_weekly", "item-to-item/neighbors", "user-to-user/neighbors"]
 
-# The time period for model fitting. The default value is "60m".
+# 模型训练的时间周期。默认为 "60m"。
 fit_period = "60m"
 
-# The number of epochs for model fitting. The default value is 100.
+# 模型训练的轮数。默认为 100。
 fit_epoch = 100
 
-# The time period for hyperparameter optimization, set to 0 to disable. The default value is "0".
+# 超参数优化的时间周期，设为 0 表示禁用。默认为 "0"。
 optimize_period = "360m"
 
-# The number of trials for hyperparameter optimization. The default value is 10.
+# 超参数优化的试验次数。默认为 10。
 optimize_trials = 10
 
-# The prompt template for query.
+# 查询的提示词模板。
 query_template = """
 You are a GitHub repository recommender system. Given a user is interested in the following repositories:
 {% for repo in feedback -%}
@@ -286,134 +285,134 @@ You are a GitHub repository recommender system. Given a user is interested in th
 Please sort repositories by the user's interests.
 """
 
-# The prompt template for documents.
+# 文档的提示词模板。
 document_template = '{{ item.Comment | replace(",", " ") | replace("\n", " ") }}'
 
 [recommend.ranker.early_stopping]
 
-# Number of epochs to wait if no improvement and then stop the training. The default value is 10.
+# 如果没有改进则等待的轮数，之后停止训练。默认为 10。
 patience = 10
 
 [recommend.ranker.reranker_api]
 
-# Auth token for the reranker API.
+# 排序器 API 的认证令牌。
 auth_token = ""
 
-# The reranker model.
+# 排序器模型。
 model = "qwen3-rerank"
 
-# URL for the reranker API, supports Jina style.
+# 排序器 API 的 URL，支持 Jina 风格。
 url = "https://dashscope.aliyuncs.com/compatible-api/v1/reranks"
 
 [recommend.fallback]
 
-# The fallback recommenders are used when cached recommendation drained out. The default values is ["latest"].
+# 降级推荐器。当缓存推荐用尽时使用。默认为 ["latest"]。
 recommenders = ["item-to-item/neighbors", "latest"]
 
 [tracing]
 
-# Enable tracing for REST APIs. The default value is false.
+# 启用 REST API 追踪。默认为 false。
 enable_tracing = false
 
-# The type of tracing exporters should be one of "zipkin", "otlp" and "otlphttp". The default value is "otlp".
+# 追踪导出器的类型，取值应为 "zipkin"、"otlp" 或 "otlphttp"。默认为 "otlp"。
 exporter = "otlp"
 
-# The endpoint of tracing collector.
+# 追踪收集器的端点。
 collector_endpoint = "http://localhost:4317"
 
-# The type of tracing sampler should be one of "always", "never" and "ratio". The default value is "always".
+# 追踪采样器的类型，取值应为 "always"、"never" 或 "ratio"。默认为 "always"。
 sampler = "always"
 
-# The ratio of ratio based sampler. The default value is 1.
+# 基于比率采样器的采样比率。默认为 1。
 ratio = 1
 
 [oidc]
 
-# Enable OpenID Connect (OIDC) authentication. The default value is false.
+# 启用 OpenID Connect (OIDC) 认证。默认为 false。
 enable = false
 
-# The issuer of the OAuth provider.
+# OAuth 提供者的颁发者。
 issuer = ""
 
-# Public identifier of the OAuth application.
+# OAuth 应用的公共标识符。
 client_id = ""
 
-# Token access to the OAuth application.
+# OAuth 应用的访问令牌。
 client_secret = ""
 
-# URL used by the OAuth provider to redirect users after they are successfully authenticated
-# (also referred to as the callback URL). You should set this to the concatenation of the
-# Gorse dashboard URL and "/callback/oauth2". For example, if the Gorse dashboard URL is
-# http://localhost:8088, the redirect URL should be: http://localhost:8088/callback/oauth2
+# OAuth 提供者在用户成功认证后重定向用户的 URL
+# （也称为回调 URL）。应设置为 Gorse 仪表板 URL 与 "/callback/oauth2" 的拼接。
+# 例如，如果 Gorse 仪表板 URL 是 http://localhost:8088，
+# 则重定向 URL 应为：http://localhost:8088/callback/oauth2
 redirect_url = ""
 
 [blob]
 
-# Blob storage URI.
+# Blob 存储 URI。
 #   - S3: s3://bucket/path
 #   - GCS: gs://my-bucket/my-database
 #   - Azure Blob: az://container/path
-#   - Local: /path/without/prefix
+#   - 本地: /path/without/prefix
 uri = "/var/lib/gorse/blob"
 
 [blob.s3]
 
-# S3 endpoint.
+# S3 端点。
 endpoint = ""
 
-# S3 access key ID.
+# S3 访问密钥 ID。
 access_key_id = ""
 
-# S3 secret access key.
+# S3 秘密访问密钥。
 secret_access_key = ""
 
 [blob.gcs]
 
-# GCS credentials file.
+# GCS 凭证文件。
 credentials_file = ""
 
 [blob.azure]
 
-# Azure Blob endpoint. Leave empty to use https://<account_name>.blob.core.windows.net/.
+# Azure Blob 端点。留空则使用 https://<account_name>.blob.core.windows.net/。
 endpoint = ""
 
-# Azure storage account name.
+# Azure 存储账户名称。
 account_name = ""
 
-# Azure storage account key.
+# Azure 存储账户密钥。
 account_key = ""
 
-# Azure storage connection string (takes precedence over account_name/account_key).
+# Azure 存储连接字符串（优先于 account_name/account_key）。
 connection_string = ""
 
 [openai]
 
-# Base URL of OpenAI API.
+# OpenAI API 的基础 URL。
 base_url = "http://localhost:11434/v1"
 
-# API key of OpenAI API.
+# OpenAI API 的密钥。
 auth_token = "ollama"
 
-# Name of chat completion model.
+# 聊天补全模型的名称。
 chat_completion_model = "qwen2.5"
 
-# Maximum requests per minute for chat completion.
+# 聊天补全每分钟最大请求数。
 chat_completion_rpm = 15000
 
-# Maximum tokens per minute for chat completion.
+# 聊天补全每分钟最大令牌数。
 chat_completion_tpm = 1200000
 
-# Name of embedding model.
+# 嵌入模型的名称。
 embedding_model = "mxbai-embed-large"
 
-# Dimensions of embedding vectors.
+# 嵌入向量的维度。
 embedding_dimensions = 1024
 
-# Maximum requests per minute for embedding.
+# 嵌入每分钟最大请求数。
 embedding_rpm = 1800
 
-# Maximum tokens per minute for embedding.
+# 嵌入每分钟最大令牌数。
 embedding_tpm = 1200000
 
-# Log file for OpenAI API.
+# OpenAI API 的日志文件。
 log_file = "openai.log"

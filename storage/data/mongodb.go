@@ -497,6 +497,9 @@ func (db *MongoDB) BatchInsertUsers(ctx context.Context, users []User) error {
 func (db *MongoDB) ModifyUser(ctx context.Context, userId string, patch UserPatch) error {
 	// create patch
 	update := bson.M{}
+	if patch.Gender != nil {
+		update["gender"] = *patch.Gender
+	}
 	if patch.Labels != nil {
 		update["labels"] = patch.Labels
 	}

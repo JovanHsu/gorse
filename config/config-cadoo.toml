@@ -1,0 +1,145 @@
+[database]
+cache_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
+data_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
+
+[master]
+port = 8086
+host = "0.0.0.0"
+http_port = 8088
+http_host = "0.0.0.0"
+n_jobs = 2
+
+[server]
+default_n = 20
+api_key = "dev-api-key-2026"
+
+[recommend]
+cache_size = 100
+cache_expire = "72h"
+active_user_ttl = 30
+
+[recommend.data_source]
+positive_feedback_types = ["like", "match"]
+read_feedback_types = ["view", "exposure"]
+negative_feedback_types = ["dislike", "block"]
+positive_feedback_ttl = 90
+item_ttl = 0
+
+[recommend.collaborative]
+type = "mf"
+fit_period = "30m"
+fit_epoch = 50
+
+[recommend.ranker]
+type = "fm"
+fit_period = "30m"
+fit_epoch = 50
+recommenders = ["latest", "collaborative", "user-to-user/neighbors"]
+
+[recommend.fallback]
+recommenders = ["latest"]
+
+[recommend.user-to-user]
+name = "neighbors"
+type = "items"
+
+[recommend.non-personalized]
+name = "popular"
+score = "count(feedback, .FeedbackType == 'like')"
+filter = "(now() - item.Timestamp).Hours() < 720"
+
+# 生命周期感知召回池配置
+[recommend.lifecycle]
+enabled = true
+cache_ttl = "5m"
+
+# 冷启动保护池
+[[recommend.recall_pools]]
+name = "cold_start"
+lifecycle_types = ["cold", "light"]
+base_weight = 0.8
+recommenders = [
+  "non-personalized/cold_start_fresh",
+  "non-personalized/cold_start_quality",
+]
+explore_ratio = 0.3
+
+# 行为驱动精准池
+[[recommend.recall_pools]]
+name = "stable"
+lifecycle_types = ["stable", "light"]
+base_weight = 0.6
+recommenders = [
+  "collaborative",
+  "user-to-user/neighbors",
+  "item-to-item/neighbors",
+]
+explore_ratio = 0.2
+
+# 疲劳打破池
+[[recommend.recall_pools]]
+name = "fatigue"
+lifecycle_types = ["fatigue"]
+base_weight = 0.6
+recommenders = [
+  "fatigue_breaker",
+  "collaborative",
+  "latest",
+]
+explore_ratio = 0.6
+
+# VIP 高价值用户池
+[[recommend.recall_pools]]
+name = "vip"
+lifecycle_types = ["vip"]
+base_weight = 0.7
+recommenders = [
+  "vip_quality_pool",
+  "collaborative",
+  "social_graph",
+]
+explore_ratio = 0.1
+
+# 供需平衡配置
+[recommend.supply_demand]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+gender_groups = ["M", "F", "O"]
+exposure_limits = { F = 100, O = 50 }
+low_exposure_threshold = 10
+low_exposure_boost = 1.5
+
+# 疲劳打破配置
+[recommend.fatigue]
+enabled = true
+trigger_swipes = 50
+trigger_days = 7
+random_ratio = 0.3
+diversity_cooldown = 3
+
+# 质量过滤配置
+[recommend.quality]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+min_like_rate = 0.05
+max_block_rate = 0.1
+
+# VIP 用户配置
+[recommend.vip]
+enabled = true
+vip_label_key = "tier"
+vip_label_value = "vip"
+manual_override = true
+
+# 冷启动非个性化推荐
+[[recommend.non-personalized]]
+name = "cold_start_fresh"
+score = "count(feedback, .FeedbackType == 'like')"
+filter = "(now() - item.Timestamp).Hours() < 720"
+
+[[recommend.non-personalized]]
+name = "cold_start_quality"
+score = "get(item.Labels, 'like_rate')"
+filter = "get(item.Labels, 'like_rate') > 0.2"

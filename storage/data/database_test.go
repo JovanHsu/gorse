@@ -247,7 +247,7 @@ func (suite *baseTestSuite) TestUsers() {
 func (suite *baseTestSuite) TestFeedback() {
 	ctx := suite.T().Context()
 	// users that already exists
-	err := suite.Database.BatchInsertUsers(ctx, []User{{"0", []string{"a"}, "comment"}})
+	err := suite.Database.BatchInsertUsers(ctx, []User{{UserId: "0", Labels: []string{"a"}, Comment: "comment"}})
 	suite.NoError(err)
 	// items that already exists
 	err = suite.Database.BatchInsertItems(ctx, []Item{{ItemId: "0", Labels: []string{"b"}, Timestamp: time.Date(1996, 4, 8, 10, 0, 0, 0, time.UTC)}})
@@ -353,7 +353,7 @@ func (suite *baseTestSuite) TestFeedback() {
 	// check users that already exists
 	user, err := suite.Database.GetUser(ctx, "0")
 	suite.NoError(err)
-	suite.Equal(User{"0", []any{"a"}, "comment"}, user)
+	suite.Equal(User{UserId: "0", Labels: []any{"a"}, Comment: "comment"}, user)
 	// check items that already exists
 	item, err := suite.Database.GetItem(ctx, "0")
 	suite.NoError(err)

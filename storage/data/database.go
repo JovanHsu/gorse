@@ -100,12 +100,14 @@ type ItemPatch struct {
 // User stores meta data about user.
 type User struct {
 	UserId  string `gorm:"primaryKey" mapstructure:"user_id"`
+	Gender  *string `gorm:"column:gender" mapstructure:"gender"` // M=male, F=female, O=other, nil=unset (auto-created)
 	Labels  any    `gorm:"serializer:json" mapstructure:"labels"`
 	Comment string `mapstructure:"comment"`
 }
 
 // UserPatch is the modification on a user.
 type UserPatch struct {
+	Gender  *string
 	Labels  any
 	Comment *string
 }

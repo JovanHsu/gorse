@@ -168,6 +168,13 @@ type RecommendConfig struct {
 	Replacement     ReplacementConfig       `mapstructure:"replacement"`
 	Ranker          RankerConfig            `mapstructure:"ranker"`
 	Fallback        FallbackConfig          `mapstructure:"fallback"`
+	// Lifecycle-aware recall pools
+	Lifecycle    LifecycleConfig    `mapstructure:"lifecycle"`
+	RecallPools  []RecallPoolConfig `mapstructure:"recall_pools" validate:"dive"`
+	SupplyDemand SupplyDemandConfig `mapstructure:"supply_demand"`
+	Fatigue     FatigueConfig     `mapstructure:"fatigue"`
+	Quality      QualityConfig     `mapstructure:"quality"`
+	VIP          VIPConfig         `mapstructure:"vip"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -388,6 +395,58 @@ type FallbackConfig struct {
 	Recommenders []string `mapstructure:"recommenders"`
 }
 
+// LifecycleConfig is the top-level lifecycle-aware recall configuration.
+type LifecycleConfig struct {
+	Enabled bool          `mapstructure:"enabled"`
+	CacheTTL time.Duration `mapstructure:"cache_ttl"` // TTL for lifecycle classification cache
+}
+
+// RecallPoolConfig describes a single recall pool for lifecycle-aware blending.
+type RecallPoolConfig struct {
+	Name           string   `mapstructure:"name" json:"name"`                             // pool name, e.g. "cold_start", "fatigue"
+	LifecycleTypes []string `mapstructure:"lifecycle_types" json:"lifecycle_types"`       // which lifecycle types this pool serves
+	BaseWeight    float64  `mapstructure:"base_weight" json:"base_weight"`             // base blend weight (0-1)
+	Recommenders  []string `mapstructure:"recommenders" json:"recommenders"`             // recommender names in this pool
+	ExploreRatio float64  `mapstructure:"explore_ratio" json:"explore_ratio"`         // exploration ratio (0-1)
+}
+
+// SupplyDemandConfig controls gender-based supply/demand balance.
+type SupplyDemandConfig struct {
+	Enabled            bool              `mapstructure:"enabled"`
+	RedisAddr         string            `mapstructure:"redis_addr"`          // Redis address for exposure counting
+	RedisPassword     string            `mapstructure:"redis_password"`
+	GenderGroups      []string          `mapstructure:"gender_groups"`      // e.g. ["M","F","O"]
+	ExposureLimits    map[string]int    `mapstructure:"exposure_limits"`    // per gender group, per day, e.g. {"F":100,"O":50}
+	LowExposureThreshold int            `mapstructure:"low_exposure_threshold"` // trigger boost when exposure < this
+	LowExposureBoost   float64         `mapstructure:"low_exposure_boost"`   // weight multiplier for low-exposure users
+}
+
+// FatigueConfig controls the fatigue-breaking mechanism.
+type FatigueConfig struct {
+	Enabled           bool    `mapstructure:"enabled"`
+	TriggerSwipes    int     `mapstructure:"trigger_swipes"`    // consecutive swipes without match to trigger fatigue
+	TriggerDays      int     `mapstructure:"trigger_days"`      // consecutive days without match to trigger fatigue
+	RandomRatio     float64 `mapstructure:"random_ratio"`     // ratio of random perturbation
+	DiversityCooldown int    `mapstructure:"diversity_cooldown"` // insert one diversity item every N recommendations
+}
+
+// QualityConfig controls quality filtering.
+type QualityConfig struct {
+	Enabled     bool    `mapstructure:"enabled"`
+	RedisAddr  string  `mapstructure:"redis_addr"`
+	RedisPassword string `mapstructure:"redis_password"`
+	MinLikeRate float64 `mapstructure:"min_like_rate"` // minimum like rate for items (pre-computed in Item.Labels["like_rate"])
+	MaxBlockRate float64 `mapstructure:"max_block_rate"` // maximum block rate (0-1)
+}
+
+// VIPConfig controls VIP user protection.
+type VIPConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	VIPLabelKey   string `mapstructure:"vip_label_key"`    // User.Labels key for VIP tag, e.g. "tier"
+	VIPLabelValue string `mapstructure:"vip_label_value"`  // value that indicates VIP, e.g. "vip"
+	ManualOverride bool  `mapstructure:"manual_override"`   // allow admin to manually set VIP via label
+}
+
 type TracingConfig struct {
 	EnableTracing     bool    `mapstructure:"enable_tracing"`
 	Exporter          string  `mapstructure:"exporter" validate:"oneof=zipkin otlp otlphttp"`
@@ -508,6 +567,28 @@ func GetDefaultConfig() *Config {
 				OptimizePeriod: 0,
 				OptimizeTrials: 10,
 				Recommenders:   []string{"latest"},
+			},
+			Lifecycle: LifecycleConfig{
+				Enabled:  false,
+				CacheTTL: 5 * time.Minute,
+			},
+			Fatigue: FatigueConfig{
+				Enabled:           false,
+				TriggerSwipes:     50,
+				TriggerDays:       7,
+				RandomRatio:      0.3,
+				DiversityCooldown: 3,
+			},
+			Quality: QualityConfig{
+				Enabled:      false,
+				MinLikeRate:  0.05,
+				MaxBlockRate: 0.1,
+			},
+			VIP: VIPConfig{
+				Enabled:        false,
+				VIPLabelKey:    "tier",
+				VIPLabelValue:  "vip",
+				ManualOverride: true,
 			},
 		},
 		Tracing: TracingConfig{
@@ -645,6 +726,24 @@ func setDefault() {
 	viper.SetDefault("recommend.ranker.recommenders", defaultConfig.Recommend.Ranker.Recommenders)
 	// [recommend.fallback]
 	viper.SetDefault("recommend.fallback", defaultConfig.Recommend.Fallback)
+	// [recommend.lifecycle]
+	viper.SetDefault("recommend.lifecycle.enabled", defaultConfig.Recommend.Lifecycle.Enabled)
+	viper.SetDefault("recommend.lifecycle.cache_ttl", defaultConfig.Recommend.Lifecycle.CacheTTL)
+	// [recommend.fatigue]
+	viper.SetDefault("recommend.fatigue.enabled", defaultConfig.Recommend.Fatigue.Enabled)
+	viper.SetDefault("recommend.fatigue.trigger_swipes", defaultConfig.Recommend.Fatigue.TriggerSwipes)
+	viper.SetDefault("recommend.fatigue.trigger_days", defaultConfig.Recommend.Fatigue.TriggerDays)
+	viper.SetDefault("recommend.fatigue.random_ratio", defaultConfig.Recommend.Fatigue.RandomRatio)
+	viper.SetDefault("recommend.fatigue.diversity_cooldown", defaultConfig.Recommend.Fatigue.DiversityCooldown)
+	// [recommend.quality]
+	viper.SetDefault("recommend.quality.enabled", defaultConfig.Recommend.Quality.Enabled)
+	viper.SetDefault("recommend.quality.min_like_rate", defaultConfig.Recommend.Quality.MinLikeRate)
+	viper.SetDefault("recommend.quality.max_block_rate", defaultConfig.Recommend.Quality.MaxBlockRate)
+	// [recommend.vip]
+	viper.SetDefault("recommend.vip.enabled", defaultConfig.Recommend.VIP.Enabled)
+	viper.SetDefault("recommend.vip.vip_label_key", defaultConfig.Recommend.VIP.VIPLabelKey)
+	viper.SetDefault("recommend.vip.vip_label_value", defaultConfig.Recommend.VIP.VIPLabelValue)
+	viper.SetDefault("recommend.vip.manual_override", defaultConfig.Recommend.VIP.ManualOverride)
 	// [tracing]
 	viper.SetDefault("tracing.exporter", defaultConfig.Tracing.Exporter)
 	viper.SetDefault("tracing.sampler", defaultConfig.Tracing.Sampler)

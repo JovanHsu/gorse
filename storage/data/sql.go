@@ -187,6 +187,7 @@ func NewSQLItem(item Item) (sqlItem SQLItem) {
 
 type SQLUser struct {
 	UserId  string `gorm:"column:user_id;primaryKey"`
+	Gender  *string `gorm:"column:gender"` // nullable: nil=unset, "M"/"F"/"O"=set
 	Labels  string `gorm:"column:labels"`
 	Comment string `gorm:"column:comment"`
 }
@@ -194,6 +195,7 @@ type SQLUser struct {
 func NewSQLUser(user User) (sqlUser SQLUser) {
 	var buf []byte
 	sqlUser.UserId = user.UserId
+	sqlUser.Gender = user.Gender
 	buf, _ = jsonutil.Marshal(user.Labels)
 	sqlUser.Labels = string(buf)
 	sqlUser.Comment = user.Comment
@@ -275,6 +277,7 @@ func (d *SQLDatabase) Init() error {
 		}
 		type Users struct {
 			UserId  string   `gorm:"column:user_id;type:varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin not null;primaryKey"`
+			Gender  *string  `gorm:"column:gender;type:varchar(1)"`
 			Labels  []string `gorm:"column:labels;type:json;not null"`
 			Comment string   `gorm:"column:comment;type:text;not null"`
 		}
@@ -302,9 +305,10 @@ func (d *SQLDatabase) Init() error {
 			Comment    string    `gorm:"column:comment;type:text;not null;default:''"`
 		}
 		type Users struct {
-			UserId  string `gorm:"column:user_id;type:varchar(256) COLLATE \"C\" not null;primaryKey"`
-			Labels  string `gorm:"column:labels;type:json;not null;default:'[]'"`
-			Comment string `gorm:"column:comment;type:text;not null;default:''"`
+			UserId  string  `gorm:"column:user_id;type:varchar(256) COLLATE \"C\" not null;primaryKey"`
+			Gender  *string `gorm:"column:gender;type:varchar(1)"`
+			Labels  string  `gorm:"column:labels;type:json;not null;default:'[]'"`
+			Comment string  `gorm:"column:comment;type:text;not null;default:''"`
 		}
 		type Feedback struct {
 			FeedbackType string    `gorm:"column:feedback_type;type:varchar(256) COLLATE \"C\";not null;primaryKey"`
@@ -330,9 +334,10 @@ func (d *SQLDatabase) Init() error {
 			Comment    string `gorm:"column:comment;type:text;not null;default:''"`
 		}
 		type Users struct {
-			UserId  string `gorm:"column:user_id;type:varchar(256) not null;primaryKey"`
-			Labels  string `gorm:"column:labels;type:json;not null;default:'null'"`
-			Comment string `gorm:"column:comment;type:text;not null;default:''"`
+			UserId  string  `gorm:"column:user_id;type:varchar(256) not null;primaryKey"`
+			Gender  *string `gorm:"column:gender;type:varchar(1)"`
+			Labels  string  `gorm:"column:labels;type:json;not null;default:'null'"`
+			Comment string  `gorm:"column:comment;type:text;not null;default:''"`
 		}
 		type Feedback struct {
 			FeedbackType string  `gorm:"column:feedback_type;type:varchar(256);not null;primaryKey"`
@@ -891,11 +896,14 @@ func (d *SQLDatabase) GetUser(ctx context.Context, userId string) (User, error) 
 // ModifyUser modify a user in MySQL.
 func (d *SQLDatabase) ModifyUser(ctx context.Context, userId string, patch UserPatch) error {
 	// ignore empty patch
-	if patch.Labels == nil && patch.Comment == nil {
+	if patch.Gender == nil && patch.Labels == nil && patch.Comment == nil {
 		log.Logger().Debug("empty user patch")
 		return nil
 	}
 	attributes := make(map[string]any)
+	if patch.Gender != nil {
+		attributes["gender"] = *patch.Gender
+	}
 	if patch.Comment != nil {
 		attributes["comment"] = *patch.Comment
 	}
