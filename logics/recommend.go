@@ -155,11 +155,19 @@ func (r *Recommender) IsColdStart() bool {
 func (r *Recommender) getTargetGender(ctx context.Context) string {
 	user, err := r.dataClient.GetUser(ctx, r.userId)
 	if err != nil {
+		log.Logger().Warn("getTargetGender failed to get user",
+			zap.String("user_id", r.userId),
+			zap.Error(err))
 		return ""
 	}
 	if user.Gender == nil {
+		log.Logger().Warn("getTargetGender: user gender is nil",
+			zap.String("user_id", r.userId))
 		return ""
 	}
+	log.Logger().Warn("getTargetGender",
+		zap.String("user_id", r.userId),
+		zap.String("user_gender", *user.Gender))
 	switch *user.Gender {
 	case "M":
 		return "F"
@@ -177,13 +185,17 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		// Apply post-filtering: ensure correct gender in final results
+		result = r.filterResultByGender(ctx, result)
 		// Fallback to ranker if pool blending returns insufficient results
 		if len(result) < limit {
 			fbResult, _, fbErr := r.RecommendSequential(ctx, result, limit, r.config.Fallback.Recommenders...)
 			if fbErr != nil {
 				return result, errors.Trace(fbErr)
 			}
-			result = fbResult
+			fbResult = r.filterResultByGender(ctx, fbResult)
+			// Merge pool results with fallback (prefer pool results for correct gender)
+			result = r.mergeWithFallback(ctx, result, fbResult, limit)
 		}
 		return result, nil
 	}
@@ -216,6 +228,7 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 // Each pool contributes recommenders, and the final score is weighted by the pool's weight.
 // Items appearing in multiple pools accumulate weights from all pools.
 // Gender cross-filtering: users are recommended to opposite-gender users only (M→F, F→M).
+// When correct-gender candidates are insufficient, wrong-gender items receive heavy score penalty.
 func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cache.Score, error) {
 	// Get pool blends for this user's lifecycle profile
 	poolBlends := r.lifecycleClassifier.GetPoolsForProfile(r.lifecycleProfile)
@@ -225,11 +238,11 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		return scores, err
 	}
 
-	// Determine target gender for cross-filtering (M→F, F→M, O→all)
+	// Determine target gender for cross-filtering (M→F, F→M, O→no filter)
 	targetGender := r.getTargetGender(ctx)
 	canFilterByGender := targetGender != "" && targetGender != "O"
 
-	// Collect candidates from each pool, weighted by pool weight
+	// Phase 1: Collect all candidate itemIds from all pools (no gender info yet)
 	type candidate struct {
 		score     float64
 		itemId   string
@@ -263,12 +276,11 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 				if r.excludeSet.Contains(s.Id) {
 					continue
 				}
-				ws := poolWeight * s.Score
 				if existing, ok := candidates[s.Id]; ok {
-					existing.score += ws
+					existing.score += poolWeight * s.Score
 				} else {
 					candidates[s.Id] = &candidate{
-						score:     ws,
+						score:     poolWeight * s.Score,
 						itemId:   s.Id,
 						timestamp: s.Timestamp,
 					}
@@ -277,7 +289,7 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		}
 	}
 
-	// Batch query items to get gender for cross-filtering
+	// Phase 2: Batch query items to get gender for cross-filtering
 	itemIds := make([]string, 0, len(candidates))
 	for id := range candidates {
 		itemIds = append(itemIds, id)
@@ -295,21 +307,59 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 					genderMap[it.ItemId] = it.Categories[0]
 				}
 			}
+			log.Logger().Warn("gender map populated",
+				zap.String("user_id", r.userId),
+				zap.String("target_gender", targetGender),
+				zap.Int("items_loaded", len(items)),
+				zap.Int("gender_map_size", len(genderMap)),
+				zap.Int("total_candidates", len(candidates)))
+		}
+	} else {
+		log.Logger().Warn("gender filter skipped",
+			zap.String("user_id", r.userId),
+			zap.String("target_gender", targetGender),
+			zap.Bool("can_filter", canFilterByGender),
+			zap.Int("item_ids_count", len(itemIds)))
+	}
+
+	// Phase 3: Apply gender penalties and collect sorted results
+	correctGenderCount := 0
+	wrongGenderCount := 0
+	unknownGenderCount := 0
+	topScores := make([]cache.Score, 0, 10)
+	for _, c := range candidates {
+		if canFilterByGender {
+			g := genderMap[c.itemId]
+			if g == "" {
+				// Unknown gender: apply heavy penalty
+				c.score *= 0.001
+				unknownGenderCount++
+			} else if g == targetGender {
+				// Correct gender: full weight
+				correctGenderCount++
+			} else {
+				// Wrong gender: apply heavy penalty
+				c.score *= 0.001
+				wrongGenderCount++
+			}
+		}
+		if c.score > 0 && len(topScores) < 10 {
+			topScores = append(topScores, cache.Score{Id: c.itemId, Score: c.score})
 		}
 	}
+
+	log.Logger().Warn("recommendWithPools score detail",
+		zap.String("user_id", r.userId),
+		zap.String("target_gender", targetGender),
+		zap.Int("correct_gender", correctGenderCount),
+		zap.Int("wrong_gender", wrongGenderCount),
+		zap.Int("top_scores_count", len(topScores)),
+		zap.Any("top_scores", topScores))
 
 	// Sort by weighted score descending
 	sorted := make([]cache.Score, 0, len(candidates))
 	for _, c := range candidates {
 		if c.score > 0 {
-			// Gender cross-filter: only recommend opposite-gender users
-			if canFilterByGender {
-				g := genderMap[c.itemId]
-				// Skip items with no gender or same gender as user
-				if g == "" || g == targetGender {
-					continue
-				}
-			}
 			sorted = append(sorted, cache.Score{
 				Id:        c.itemId,
 				Score:     c.score,
@@ -321,7 +371,19 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		return sorted[i].Score > sorted[j].Score
 	})
 
-	// Mark excluded items and trim to limit
+	log.Logger().Warn("recommendWithPools sorted top5",
+		zap.String("user_id", r.userId),
+		zap.String("target_gender", targetGender))
+	for i := 0; i < len(sorted) && i < 5; i++ {
+		g := genderMap[sorted[i].Id]
+		log.Logger().Warn("recommendWithPools sorted item",
+			zap.Int("rank", i),
+			zap.String("item_id", sorted[i].Id),
+			zap.Float64("score", sorted[i].Score),
+			zap.String("item_gender", g))
+	}
+
+	// Trim to limit
 	result := make([]cache.Score, 0, limit)
 	for _, s := range sorted {
 		if r.excludeSet.Contains(s.Id) {
@@ -333,6 +395,17 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 			break
 		}
 	}
+
+	log.Logger().Warn("recommendWithPools result",
+		zap.String("user_id", r.userId),
+		zap.String("target_gender", targetGender),
+		zap.Bool("can_filter", canFilterByGender),
+		zap.Int("correct_gender", correctGenderCount),
+		zap.Int("wrong_gender", wrongGenderCount),
+		zap.Int("unknown_gender", unknownGenderCount),
+		zap.Int("total_candidates", len(candidates)),
+		zap.Int("result_size", len(result)))
+
 	return result, nil
 }
 
@@ -597,4 +670,90 @@ func (r *Recommender) recommendExternal(name string) RecommenderFunc {
 		}
 		return scores, externalConfig.Hash(), nil
 	}
+}
+
+// filterResultByGender applies gender cross-filtering to recommendation results.
+// For dating apps: M→F, F→M, O→no filter. Returns items of correct gender only.
+func (r *Recommender) filterResultByGender(ctx context.Context, results []cache.Score) []cache.Score {
+	if len(results) == 0 {
+		return results
+	}
+	targetGender := r.getTargetGender(ctx)
+	if targetGender == "" || targetGender == "O" {
+		// No gender filter needed
+		return results
+	}
+
+	// Batch fetch items to get their gender
+	itemIds := make([]string, len(results))
+	for i, s := range results {
+		itemIds[i] = s.Id
+	}
+	items, err := r.dataClient.BatchGetItems(ctx, itemIds, data.GetOptions{SkipHidden: true})
+	if err != nil {
+		log.Logger().Warn("filterResultByGender failed to batch get items",
+			zap.String("user_id", r.userId),
+			zap.Error(err))
+		return results // Return unfiltered on error
+	}
+	itemGenderMap := make(map[string]string, len(items))
+	for _, it := range items {
+		if len(it.Categories) > 0 {
+			itemGenderMap[it.ItemId] = it.Categories[0]
+		}
+	}
+
+	// Filter to correct gender only
+	filtered := make([]cache.Score, 0, len(results))
+	wrongCount := 0
+	for _, s := range results {
+		g := itemGenderMap[s.Id]
+		if g == targetGender {
+			filtered = append(filtered, s)
+		} else {
+			wrongCount++
+		}
+	}
+	log.Logger().Warn("filterResultByGender",
+		zap.String("user_id", r.userId),
+		zap.String("target_gender", targetGender),
+		zap.Int("input_count", len(results)),
+		zap.Int("output_count", len(filtered)),
+		zap.Int("wrong_gender_filtered", wrongCount))
+	return filtered
+}
+
+// mergeWithFallback combines pool results with fallback results.
+// Priority: pool results first (correct gender from pools), then fill remaining slots
+// from fallback results (also gender-filtered).
+func (r *Recommender) mergeWithFallback(ctx context.Context, poolResult, fbResult []cache.Score, limit int) []cache.Score {
+	if len(poolResult) >= limit {
+		return poolResult[:limit]
+	}
+
+	// Deduplicate fallback results (avoid showing items already in poolResult)
+	seen := mapset.NewSet[string]()
+	for _, s := range poolResult {
+		seen.Add(s.Id)
+	}
+	uniqueFb := make([]cache.Score, 0, len(fbResult))
+	for _, s := range fbResult {
+		if !seen.Contains(s.Id) {
+			seen.Add(s.Id)
+			uniqueFb = append(uniqueFb, s)
+		}
+	}
+
+	// Append unique fallback results
+	result := append(poolResult, uniqueFb...)
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	log.Logger().Warn("mergeWithFallback",
+		zap.String("user_id", r.userId),
+		zap.Int("pool_count", len(poolResult)),
+		zap.Int("fb_count", len(fbResult)),
+		zap.Int("unique_fb_count", len(uniqueFb)),
+		zap.Int("final_count", len(result)))
+	return result
 }

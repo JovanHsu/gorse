@@ -131,6 +131,13 @@ func NewMaster(cfg *config.Config, cacheFolder string, standalone bool, configPa
 			Password: cfg.Recommend.SupplyDemand.RedisPassword,
 			DB:       0,
 		})
+		log.Logger().Warn("Redis client created for lifecycle",
+			zap.Bool("lifecycle_enabled", cfg.Recommend.Lifecycle.Enabled),
+			zap.String("redis_addr", cfg.Recommend.SupplyDemand.RedisAddr))
+	} else {
+		log.Logger().Warn("Redis client NOT created",
+			zap.Bool("lifecycle_enabled", cfg.Recommend.Lifecycle.Enabled),
+			zap.String("redis_addr", cfg.Recommend.SupplyDemand.RedisAddr))
 	}
 
 	duration := min(cfg.Recommend.Collaborative.FitPeriod, cfg.Recommend.Ranker.FitPeriod)
