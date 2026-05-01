@@ -42,6 +42,7 @@ import (
 	"github.com/gorse-io/gorse/storage/meta"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/juju/errors"
+	"github.com/redis/go-redis/v9"
 	"github.com/sashabaranov/go-openai"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -122,6 +123,16 @@ func NewMaster(cfg *config.Config, cacheFolder string, standalone bool, configPa
 	parallel.InitChatCompletionLimiters(cfg.OpenAI.ChatCompletionRPM, cfg.OpenAI.ChatCompletionTPM)
 	parallel.InitEmbeddingLimiters(cfg.OpenAI.EmbeddingRPM, cfg.OpenAI.EmbeddingTPM)
 
+	// Create Redis client for lifecycle classification (if enabled)
+	var redisClient *redis.Client
+	if cfg.Recommend.Lifecycle.Enabled && cfg.Recommend.SupplyDemand.RedisAddr != "" {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Recommend.SupplyDemand.RedisAddr,
+			Password: cfg.Recommend.SupplyDemand.RedisPassword,
+			DB:       0,
+		})
+	}
+
 	duration := min(cfg.Recommend.Collaborative.FitPeriod, cfg.Recommend.Ranker.FitPeriod)
 	m := &Master{
 		// create task monitor
@@ -134,6 +145,7 @@ func NewMaster(cfg *config.Config, cacheFolder string, standalone bool, configPa
 			Config:      cfg,
 			CacheClient: cache.NoDatabase{},
 			DataClient:  data.NoDatabase{},
+			RedisClient: redisClient,
 			HttpHost:    cfg.Master.HttpHost,
 			HttpPort:    cfg.Master.HttpPort,
 			WebService:  new(restful.WebService),

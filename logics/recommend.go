@@ -16,18 +16,22 @@ package logics
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/gorse-io/gorse/common/expression"
 	"github.com/gorse-io/gorse/common/heap"
+	"github.com/gorse-io/gorse/common/log"
 	"github.com/gorse-io/gorse/common/util"
 	"github.com/gorse-io/gorse/config"
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/juju/errors"
+	"github.com/redis/go-redis/v9"
 	"github.com/samber/lo"
+	"go.uber.org/zap"
 )
 
 const (
@@ -50,6 +54,10 @@ type Recommender struct {
 	userFeedback []data.Feedback
 	categories   []string
 	excludeSet   mapset.Set[string]
+
+	// Lifecycle-aware recall support
+	lifecycleClassifier *LifecycleClassifier
+	lifecycleProfile   *LifecycleProfile
 }
 
 type RecommenderFunc func(ctx context.Context) ([]cache.Score, string, error)
@@ -89,6 +97,47 @@ func NewRecommender(config config.RecommendConfig, cacheClient cache.Database, d
 	}, nil
 }
 
+// NewRecommenderWithLifecycle creates a Recommender with lifecycle-aware pool blending.
+// It classifies the user asynchronously and uses pool-based recall when lifecycle is enabled.
+func NewRecommenderWithLifecycle(
+	config config.RecommendConfig,
+	cacheClient cache.Database,
+	dataClient data.Database,
+	redisClient *redis.Client,
+	online bool,
+	userId string,
+	categories []string,
+) (*Recommender, error) {
+	recommender, err := NewRecommender(config, cacheClient, dataClient, online, userId, categories)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	// Set up lifecycle classifier if enabled
+	if config.Lifecycle.Enabled && redisClient != nil {
+		classifier := NewLifecycleClassifier(
+			config.Lifecycle,
+			config.DataSource,
+			config.RecallPools,
+			config.Fatigue,
+			config.VIP,
+			redisClient,
+			dataClient,
+		)
+		recommender.lifecycleClassifier = classifier
+		// Classify user synchronously (fast path with Redis cache)
+		profile, err := classifier.Classify(context.Background(), userId)
+		if err != nil {
+			log.Logger().Warn("failed to classify user lifecycle",
+				zap.String("user_id", userId),
+				zap.Error(err))
+			// Non-fatal: continue without lifecycle profile
+		} else {
+			recommender.lifecycleProfile = profile
+		}
+	}
+	return recommender, nil
+}
+
 func (r *Recommender) ExcludeSet() mapset.Set[string] {
 	return r.excludeSet
 }
@@ -102,6 +151,22 @@ func (r *Recommender) IsColdStart() bool {
 }
 
 func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.Score, err error) {
+	// Lifecycle-aware pool blending (Phase 2)
+	if r.lifecycleProfile != nil && len(r.config.RecallPools) > 0 {
+		result, err = r.recommendWithPools(ctx, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		// Fallback to ranker if pool blending returns insufficient results
+		if len(result) < limit {
+			fbResult, _, fbErr := r.RecommendSequential(ctx, result, limit, r.config.Fallback.Recommenders...)
+			if fbErr != nil {
+				return result, errors.Trace(fbErr)
+			}
+			result = fbResult
+		}
+		return result, nil
+	}
 	if !strings.EqualFold(r.config.Ranker.Type, "none") {
 		scores, err := r.cacheClient.SearchScores(ctx, cache.Recommend, r.userId, r.categories, 0, r.config.CacheSize)
 		if err != nil {
@@ -125,6 +190,96 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 	}
 	result, _, err = r.RecommendSequential(ctx, result, limit, r.config.Fallback.Recommenders...)
 	return result, errors.Trace(err)
+}
+
+// recommendWithPools blends recommendations from multiple lifecycle pools using soft weights.
+// Each pool contributes recommenders, and the final score is weighted by the pool's weight.
+// Items appearing in multiple pools accumulate weights from all pools.
+func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cache.Score, error) {
+	// Get pool blends for this user's lifecycle profile
+	poolBlends := r.lifecycleClassifier.GetPoolsForProfile(r.lifecycleProfile)
+	if len(poolBlends) == 0 {
+		// Fallback to sequential if no pools match
+		scores, _, err := r.RecommendSequential(ctx, nil, limit, r.config.Ranker.Recommenders...)
+		return scores, err
+	}
+
+	// Collect candidates from each pool, weighted by pool weight
+	type candidate struct {
+		score     float64
+		itemId   string
+		timestamp time.Time
+	}
+	candidates := make(map[string]*candidate)
+
+	for _, blend := range poolBlends {
+		poolWeight := blend.Weight
+		if poolWeight <= 0 {
+			continue
+		}
+		for _, name := range blend.Recommenders {
+			recommenderFunc, err := r.parse(name)
+			if err != nil {
+				log.Logger().Warn("failed to parse recommender in pool",
+					zap.String("pool", blend.PoolName),
+					zap.String("recommender", name),
+					zap.Error(err))
+				continue
+			}
+			scores, _, err := recommenderFunc(ctx)
+			if err != nil {
+				log.Logger().Warn("failed to get scores from recommender",
+					zap.String("pool", blend.PoolName),
+					zap.String("recommender", name),
+					zap.Error(err))
+				continue
+			}
+			for _, s := range scores {
+				if r.excludeSet.Contains(s.Id) {
+					continue
+				}
+				ws := poolWeight * s.Score
+				if existing, ok := candidates[s.Id]; ok {
+					existing.score += ws
+				} else {
+					candidates[s.Id] = &candidate{
+						score:     ws,
+						itemId:   s.Id,
+						timestamp: s.Timestamp,
+					}
+				}
+			}
+		}
+	}
+
+	// Sort by weighted score descending
+	sorted := make([]cache.Score, 0, len(candidates))
+	for _, c := range candidates {
+		if c.score > 0 {
+			sorted = append(sorted, cache.Score{
+				Id:        c.itemId,
+				Score:     c.score,
+				Timestamp: c.timestamp,
+			})
+		}
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Score > sorted[j].Score
+	})
+
+	// Mark excluded items and trim to limit
+	result := make([]cache.Score, 0, limit)
+	for _, s := range sorted {
+		if r.excludeSet.Contains(s.Id) {
+			continue
+		}
+		r.excludeSet.Add(s.Id)
+		result = append(result, s)
+		if limit > 0 && len(result) >= limit {
+			break
+		}
+	}
+	return result, nil
 }
 
 // RecommendSequential recommend items from multiple recommenders sequentially util reaching the limit.

@@ -38,6 +38,7 @@ import (
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/juju/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"github.com/samber/lo"
 	"github.com/swaggest/swgui/v5emb"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/emicklei/go-restful/otelrestful"
@@ -60,6 +61,7 @@ type RestServer struct {
 	Config      *config.Config
 	CacheClient cache.Database
 	DataClient  data.Database
+	RedisClient *redis.Client // For lifecycle classification cache and fatigue state
 
 	HttpHost string
 	HttpPort int
@@ -872,7 +874,14 @@ func (s *RestServer) getRecommend(request *restful.Request, response *restful.Re
 		return
 	}
 	// online recommendation
-	recommender, err := logics.NewRecommender(s.Config.Recommend, s.CacheClient, s.DataClient, true, userId, categories)
+	var recommender *logics.Recommender
+	if s.Config.Recommend.Lifecycle.Enabled && s.RedisClient != nil {
+		recommender, err = logics.NewRecommenderWithLifecycle(
+			s.Config.Recommend, s.CacheClient, s.DataClient, s.RedisClient,
+			true, userId, categories)
+	} else {
+		recommender, err = logics.NewRecommender(s.Config.Recommend, s.CacheClient, s.DataClient, true, userId, categories)
+	}
 	if err != nil {
 		InternalServerError(response, err)
 		return
