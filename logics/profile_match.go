@@ -25,8 +25,21 @@ import (
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/juju/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
+)
+
+var (
+	profileMatchCandidatesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "gorse", Subsystem: "recommender", Name: "profile_match_candidates_total",
+		Help: "Total profile match candidates fetched from database",
+	})
+	profileMatchFilteredTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gorse", Subsystem: "recommender", Name: "profile_match_filtered_total",
+		Help: "Candidates filtered out by various constraints",
+	}, []string{"reason"})
 )
 
 // haversineKm computes the great-circle distance between two points on Earth
@@ -252,12 +265,14 @@ func (r *Recommender) fetchProfileCandidates(
 				continue
 			}
 			if c.age < pref.PrefAgeMin || c.age > pref.PrefAgeMax {
+				profileMatchFilteredTotal.WithLabelValues("age").Inc()
 				continue
 			}
 			if c.age < cfg.MinAge || c.age > cfg.MaxAge {
 				continue
 			}
 			if pref.PrefCity != "" && c.city != "" && c.city != pref.PrefCity {
+				profileMatchFilteredTotal.WithLabelValues("city").Inc()
 				continue
 			}
 			if pref.PrefPurpose != "" && c.purpose != "" && c.purpose != pref.PrefPurpose {
@@ -267,12 +282,15 @@ func (r *Recommender) fetchProfileCandidates(
 			if pref.PrefMaxDistKm > 0 && pref.Lat != 0 && pref.Lon != 0 && c.lat != 0 && c.lon != 0 {
 				dist := haversineKm(pref.Lat, pref.Lon, c.lat, c.lon)
 				if dist > float64(pref.PrefMaxDistKm) {
+					profileMatchFilteredTotal.WithLabelValues("distance").Inc()
 					continue
 				}
 			}
 			if !activeCutoff.IsZero() && !c.item.Timestamp.IsZero() && c.item.Timestamp.Before(activeCutoff) {
+				profileMatchFilteredTotal.WithLabelValues("active").Inc()
 				continue
 			}
+			profileMatchCandidatesTotal.Inc()
 			allCandidates = append(allCandidates, *c)
 		}
 	} else {
@@ -302,12 +320,14 @@ func (r *Recommender) fetchProfileCandidates(
 					continue
 				}
 				if c.age < pref.PrefAgeMin || c.age > pref.PrefAgeMax {
+					profileMatchFilteredTotal.WithLabelValues("age").Inc()
 					continue
 				}
 				if c.age < cfg.MinAge || c.age > cfg.MaxAge {
 					continue
 				}
 				if pref.PrefCity != "" && c.city != "" && c.city != pref.PrefCity {
+					profileMatchFilteredTotal.WithLabelValues("city").Inc()
 					continue
 				}
 				if pref.PrefPurpose != "" && c.purpose != "" && c.purpose != pref.PrefPurpose {
@@ -316,12 +336,15 @@ func (r *Recommender) fetchProfileCandidates(
 				if pref.PrefMaxDistKm > 0 && pref.Lat != 0 && pref.Lon != 0 && c.lat != 0 && c.lon != 0 {
 					dist := haversineKm(pref.Lat, pref.Lon, c.lat, c.lon)
 					if dist > float64(pref.PrefMaxDistKm) {
+						profileMatchFilteredTotal.WithLabelValues("distance").Inc()
 						continue
 					}
 				}
 				if !activeCutoff.IsZero() && !c.item.Timestamp.IsZero() && c.item.Timestamp.Before(activeCutoff) {
+					profileMatchFilteredTotal.WithLabelValues("active").Inc()
 					continue
 				}
+				profileMatchCandidatesTotal.Inc()
 				allCandidates = append(allCandidates, *c)
 			}
 			cursor = items[len(items)-1].ItemId

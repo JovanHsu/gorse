@@ -73,6 +73,8 @@ const (
 	CTRRecall                  = "ctr_recall"
 	CTRAUC                     = "ctr_auc"
 	PositiveFeedbackRatio      = "positive_feedback_ratio"
+	CVRAverage                = "cvr_average"   // Average CVR (chat/match ratio) across items
+	CVRCount                  = "cvr_item_count" // Number of items with match events
 )
 
 var ItemCache = []string{

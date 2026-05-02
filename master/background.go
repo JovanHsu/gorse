@@ -31,6 +31,7 @@ import (
 type BackgroundServiceManager struct {
 	behaviorStats  *logics.BehaviorStatsComputer
 	successRate    *logics.SuccessRateComputer
+	cvrReporter    *CVRReporter
 
 	// For future extensibility: add more services here.
 	// e.g., lifecycleClassifier *logics.LifecycleClassifier
@@ -41,8 +42,9 @@ func NewBackgroundServiceManager(
 	cfg config.RecommendConfig,
 	redisClient *redis.Client,
 	dataClient data.Database,
+	cvrReporter *CVRReporter,
 ) *BackgroundServiceManager {
-	m := &BackgroundServiceManager{}
+	m := &BackgroundServiceManager{cvrReporter: cvrReporter}
 
 	// BehaviorStatsComputer: computes user behavior statistics (right_swipe_rate,
 	// behavior_stability, explore_ratio) and writes to Redis + User.Labels.
@@ -89,6 +91,13 @@ func (m *BackgroundServiceManager) Start(ctx context.Context) {
 		zap.L().Info("success rate computer started",
 			zap.Duration("interval", 1*time.Hour))
 	}
+
+	if m.cvrReporter != nil {
+		// Report CVR metrics every 15 minutes.
+		m.cvrReporter.Start(ctx)
+		zap.L().Info("cvr reporter started",
+			zap.Duration("interval", 15*time.Minute))
+	}
 }
 
 // Stop gracefully stops all background services.
@@ -101,5 +110,9 @@ func (m *BackgroundServiceManager) Stop() {
 	if m.successRate != nil {
 		m.successRate.Stop()
 		zap.L().Info("success rate computer stopped")
+	}
+	if m.cvrReporter != nil {
+		m.cvrReporter.Stop()
+		zap.L().Info("cvr reporter stopped")
 	}
 }
