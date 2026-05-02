@@ -214,3 +214,11 @@ prefer_verified = true        # 优先推荐已认证用户
 score_by = "combined"          # 评分策略: profile_completeness / recency / combined
 active_within_days = 30        # 只推荐 N 天内有活跃的用户（0 = 不过滤）
 max_results = 200             # 最大候选数量（性能和召回平衡）
+
+# VIP 高质量池 (Phase 4+)
+# 为 VIP 用户优先推荐高质量用户：已认证、资料完整、近期活跃、互动指标好
+[recommend.vip_quality]
+min_quality_score = 0.3       # 最低质量分（0-1）
+require_verified = false       # 是否只推荐已认证用户
+active_within_days = 7         # 只推荐 N 天内有活跃的用户
+score_by = "quality_recency"   # 评分策略: quality / quality_recency / engagement

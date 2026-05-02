@@ -46,6 +46,7 @@ const (
 	FatigueBreakerRecommender  = "fatigue_breaker"
 	SocialGraphRecommender     = "social_graph"
 	ProfileMatchRecommender    = "profile_match"
+	VIPQualityPoolRecommender = "vip_quality_pool"
 )
 
 type Recommender struct {
@@ -660,6 +661,8 @@ func (r *Recommender) parse(fullname string) (RecommenderFunc, error) {
 		return r.recommendSocialGraph, nil
 	} else if fullname == ProfileMatchRecommender {
 		return r.recommendProfileMatch, nil
+	} else if fullname == VIPQualityPoolRecommender {
+		return r.recommendVIPQualityPool, nil
 	} else if after, ok := strings.CutPrefix(fullname, NonPersonalizedRecommender); ok {
 		name := after
 		return r.recommendNonPersonalized(name), nil

@@ -182,6 +182,7 @@ type RecommendConfig struct {
 	SessionFatigue SessionFatigueConfig `mapstructure:"session_fatigue"`
 	SocialGraph   SocialGraphConfig   `mapstructure:"social_graph"`
 	ProfileMatch ProfileMatchConfig `mapstructure:"profile_match"`
+	VIPQuality  VIPQualityConfig  `mapstructure:"vip_quality"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -549,6 +550,15 @@ type ProfileMatchConfig struct {
 	ActiveWithinDays        int     `mapstructure:"active_within_days"`          // filter out inactive users (default 0 = disabled)
 	ScoreBy                 string  `mapstructure:"score_by"`                     // "profile_completeness", "recency", "combined" (default "combined")
 	MaxResults              int     `mapstructure:"max_results"`                  // max DB candidates to fetch (default 200)
+}
+
+// VIPQualityConfig controls the VIP quality pool recommender.
+type VIPQualityConfig struct {
+	MinQualityScore  float64 `mapstructure:"min_quality_score"`  // minimum quality threshold (default 0)
+	RequireVerified bool    `mapstructure:"require_verified"`    // only verified users (default false)
+	ActiveWithinDays int    `mapstructure:"active_within_days"`  // filter inactive users (default 7)
+	MaxResults      int     `mapstructure:"max_results"`         // max candidates to fetch (default 200)
+	ScoreBy         string  `mapstructure:"score_by"`           // "quality", "quality_recency", "engagement" (default "quality_recency")
 }
 
 type OpenAIConfig struct {
