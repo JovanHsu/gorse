@@ -44,9 +44,11 @@ const (
 	ExternalRecommender        = "external/"
 	CollaborativeRecommender   = "collaborative"
 	FatigueBreakerRecommender  = "fatigue_breaker"
-	SocialGraphRecommender     = "social_graph"
-	ProfileMatchRecommender    = "profile_match"
-	VIPQualityPoolRecommender = "vip_quality_pool"
+	SocialGraphRecommender      = "social_graph"
+	ProfileMatchRecommender     = "profile_match"
+	VIPQualityPoolRecommender  = "vip_quality_pool"
+	InterestBasedRecommender   = "interest_based"
+	TemporalRecommender        = "temporal"
 )
 
 type Recommender struct {
@@ -214,9 +216,6 @@ func (r *Recommender) getTargetGender(ctx context.Context) string {
 			zap.String("user_id", r.userId))
 		return ""
 	}
-	log.Logger().Warn("getTargetGender",
-		zap.String("user_id", r.userId),
-		zap.String("user_gender", *user.Gender))
 	switch *user.Gender {
 	case "M":
 		return "F"
@@ -309,6 +308,15 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cache.Score, error) {
 	// Get pool blends for this user's lifecycle profile
 	poolBlends := r.lifecycleClassifier.GetPoolsForProfile(r.lifecycleProfile)
+	log.Logger().Warn("pool blends for user",
+		zap.String("user_id", r.userId),
+		zap.Int("pool_count", len(poolBlends)))
+	for _, blend := range poolBlends {
+		log.Logger().Warn("pool blend",
+			zap.String("pool", blend.PoolName),
+			zap.Float64("weight", blend.Weight),
+			zap.Strings("recommenders", blend.Recommenders))
+	}
 	if len(poolBlends) == 0 {
 		// Fallback to sequential if no pools match
 		scores, _, err := r.RecommendSequential(ctx, nil, limit, r.config.Ranker.Recommenders...)
@@ -374,19 +382,32 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 					zap.Error(err))
 				continue
 			}
-			for _, s := range scores {
-				if r.excludeSet.Contains(s.Id) {
-					continue
-				}
-				if existing, ok := candidates[s.Id]; ok {
-					existing.score += poolWeight * s.Score
-				} else {
-					candidates[s.Id] = &candidate{
-						score:     poolWeight * s.Score,
-						itemId:   s.Id,
-						timestamp: s.Timestamp,
+			if len(scores) > 0 {
+				log.Logger().Warn("recommender output",
+					zap.String("pool", blend.PoolName),
+					zap.String("recommender", name),
+					zap.Float64("pool_weight", poolWeight),
+					zap.Int("score_count", len(scores)),
+					zap.Float64("first_score", scores[0].Score),
+					zap.String("first_id", scores[0].Id))
+				for _, s := range scores {
+					if r.excludeSet.Contains(s.Id) {
+						continue
+					}
+					if existing, ok := candidates[s.Id]; ok {
+						existing.score += poolWeight * s.Score
+					} else {
+						candidates[s.Id] = &candidate{
+							score:     poolWeight * s.Score,
+							itemId:   s.Id,
+							timestamp: s.Timestamp,
+						}
 					}
 				}
+			} else {
+				log.Logger().Warn("recommender returned no scores",
+					zap.String("pool", blend.PoolName),
+					zap.String("recommender", name))
 			}
 		}
 	}
@@ -663,6 +684,10 @@ func (r *Recommender) parse(fullname string) (RecommenderFunc, error) {
 		return r.recommendProfileMatch, nil
 	} else if fullname == VIPQualityPoolRecommender {
 		return r.recommendVIPQualityPool, nil
+	} else if fullname == InterestBasedRecommender {
+		return r.recommendInterestBased, nil
+	} else if fullname == TemporalRecommender {
+		return r.recommendTemporal, nil
 	} else if after, ok := strings.CutPrefix(fullname, NonPersonalizedRecommender); ok {
 		name := after
 		return r.recommendNonPersonalized(name), nil
