@@ -120,3 +120,8 @@ $RECYCLE.BIN/
 .vscode
 
 # End of https://www.gitignore.io/api/go,windows,jetbrains
+.gstack/
+
+# Dashboard (Vue.js SPA) — managed separately at https://github.com/gorse-io/dashboard
+# Run `statik -f -src=dashboard/dist -dest=dashboard` to regenerate statik.go after updating dashboard
+dashboard/
