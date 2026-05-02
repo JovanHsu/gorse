@@ -30,6 +30,8 @@ func TestToUserLabels(t *testing.T) {
 		"tier":         "vip",
 		"pref_age_min": float64(22),
 		"pref_age_max": float64(34),
+		"latitude":     39.9042,
+		"longitude":    116.4074,
 	}
 	u, ok := ToUserLabels(raw)
 	assert.True(t, ok)
@@ -40,6 +42,8 @@ func TestToUserLabels(t *testing.T) {
 	assert.Equal(t, "vip", u.Tier)
 	assert.Equal(t, 22, u.PrefAgeMin)
 	assert.Equal(t, 34, u.PrefAgeMax)
+	assert.InDelta(t, 39.9042, u.Latitude, 0.0001)
+	assert.InDelta(t, 116.4074, u.Longitude, 0.0001)
 }
 
 func TestToUserLabels_Nil(t *testing.T) {
@@ -56,6 +60,8 @@ func TestToItemLabels(t *testing.T) {
 		"like_rate":     0.42,
 		"block_rate":    0.02,
 		"active_hours":  []any{22.0, 23.0, 0.0, 1.0, 2.0},
+		"latitude":      31.2304,
+		"longitude":     121.4737,
 	}
 	i, ok := ToItemLabels(raw)
 	assert.True(t, ok)
@@ -65,6 +71,8 @@ func TestToItemLabels(t *testing.T) {
 	assert.Equal(t, 0.42, i.LikeRate)
 	assert.Equal(t, 0.02, i.BlockRate)
 	assert.Equal(t, []int{22, 23, 0, 1, 2}, i.ActiveHours)
+	assert.InDelta(t, 31.2304, i.Latitude, 0.0001)
+	assert.InDelta(t, 121.4737, i.Longitude, 0.0001)
 }
 
 func TestUserLabels_ToMap(t *testing.T) {
@@ -159,6 +167,28 @@ func TestItemLabels_Validate(t *testing.T) {
 	err = ItemLabels{ActiveHours: []int{25}}.Validate()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "active_hours")
+
+	// Latitude out of range
+	err = ItemLabels{Latitude: 91}.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "latitude")
+
+	err = ItemLabels{Latitude: -91}.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "latitude")
+
+	// Longitude out of range
+	err = ItemLabels{Longitude: 181}.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "longitude")
+
+	err = ItemLabels{Longitude: -181}.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "longitude")
+
+	// Valid lat/lon
+	err = ItemLabels{Latitude: 39.9042, Longitude: 116.4074}.Validate()
+	assert.NoError(t, err)
 
 	err = ItemLabels{Age: 30, QualityScore: 0.8}.Validate()
 	assert.NoError(t, err)

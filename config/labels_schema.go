@@ -59,6 +59,8 @@ type UserLabels struct {
 	PrefCity            string `json:"pref_city,omitempty"`               // Preferred partner city
 	PrefPurpose         string `json:"pref_purpose,omitempty"`            // Preferred partner dating purpose
 	PrefMaxDistanceKm   int    `json:"pref_max_distance_km,omitempty"`   // Maximum distance to partner in km
+	Latitude            float64 `json:"latitude,omitempty"`              // User's latitude (-90 to 90)
+	Longitude           float64 `json:"longitude,omitempty"`             // User's longitude (-180 to 180)
 
 	// Behavior statistics (written by BehaviorStatsComputer, read by behavior tracker)
 	RightSwipeRate      float64 `json:"right_swipe_rate,omitempty"`      // Ratio of (likes+matches) to total swipes 0.0-1.0
@@ -104,6 +106,10 @@ type ItemLabels struct {
 
 	// Activity patterns
 	ActiveHours []int `json:"active_hours,omitempty"` // Hours of day when user is most active (0-23), e.g. [22,23,0,1,2]
+
+	// Geolocation (used by profile_match for distance filtering)
+	Latitude  float64 `json:"latitude,omitempty"`  // Geographic latitude (-90 to 90)
+	Longitude float64 `json:"longitude,omitempty"`   // Geographic longitude (-180 to 180)
 
 	// Target demographics (written by user preference, read by profile_match)
 	GenderTarget []string `json:"gender_target,omitempty"` // Target genders for this profile: ["M"], ["F"], ["M","F"]
@@ -195,6 +201,8 @@ func ToUserLabels(labels map[string]any) (UserLabels, bool) {
 		PrefCity:            getString(labels, "pref_city"),
 		PrefPurpose:         getString(labels, "pref_purpose"),
 		PrefMaxDistanceKm:   getInt(labels, "pref_max_distance_km"),
+		Latitude:            getFloat64(labels, "latitude"),
+		Longitude:           getFloat64(labels, "longitude"),
 		RightSwipeRate:      getFloat64(labels, "right_swipe_rate"),
 		AvgSwipeDurationMs:  getInt(labels, "avg_swipe_duration_ms"),
 		BehaviorStability:   getFloat64(labels, "behavior_stability"),
@@ -232,6 +240,8 @@ func ToItemLabels(labels map[string]any) (ItemLabels, bool) {
 		CVRScore:     getFloat64(labels, "cvr_score"),
 		ActiveHours:  getIntSlice(labels, "active_hours"),
 		GenderTarget: getStringSlice(labels, "gender_target"),
+		Latitude:     getFloat64(labels, "latitude"),
+		Longitude:    getFloat64(labels, "longitude"),
 	}, true
 }
 
@@ -255,6 +265,8 @@ func (u UserLabels) ToMap() map[string]any {
 	if u.PrefCity != ""                  { m["pref_city"] = u.PrefCity }
 	if u.PrefPurpose != ""               { m["pref_purpose"] = u.PrefPurpose }
 	if u.PrefMaxDistanceKm != 0         { m["pref_max_distance_km"] = u.PrefMaxDistanceKm }
+	if u.Latitude != 0                 { m["latitude"] = u.Latitude }
+	if u.Longitude != 0                { m["longitude"] = u.Longitude }
 	if u.RightSwipeRate != 0            { m["right_swipe_rate"] = u.RightSwipeRate }
 	if u.AvgSwipeDurationMs != 0        { m["avg_swipe_duration_ms"] = u.AvgSwipeDurationMs }
 	if u.BehaviorStability != 0         { m["behavior_stability"] = u.BehaviorStability }
@@ -288,6 +300,8 @@ func (i ItemLabels) ToMap() map[string]any {
 	if i.CVRScore != 0      { m["cvr_score"] = i.CVRScore }
 	if len(i.ActiveHours) > 0 { m["active_hours"] = i.ActiveHours }
 	if len(i.GenderTarget) > 0 { m["gender_target"] = i.GenderTarget }
+	if i.Latitude != 0         { m["latitude"] = i.Latitude }
+	if i.Longitude != 0        { m["longitude"] = i.Longitude }
 	return m
 }
 
@@ -331,6 +345,12 @@ func (u UserLabels) Validate() error {
 			return &LabelValidationError{Field: "stats_updated_at", Value: u.StatsUpdatedAt, Reason: "must be RFC3339 format"}
 		}
 	}
+	if u.Latitude != 0 && (u.Latitude < -90 || u.Latitude > 90) {
+		return &LabelValidationError{Field: "latitude", Value: u.Latitude, Reason: "must be between -90 and 90"}
+	}
+	if u.Longitude != 0 && (u.Longitude < -180 || u.Longitude > 180) {
+		return &LabelValidationError{Field: "longitude", Value: u.Longitude, Reason: "must be between -180 and 180"}
+	}
 	return nil
 }
 
@@ -367,6 +387,12 @@ func (i ItemLabels) Validate() error {
 		if h < 0 || h > 23 {
 			return &LabelValidationError{Field: "active_hours", Value: h, Reason: "each hour must be between 0 and 23"}
 		}
+	}
+	if i.Latitude != 0 && (i.Latitude < -90 || i.Latitude > 90) {
+		return &LabelValidationError{Field: "latitude", Value: i.Latitude, Reason: "must be between -90 and 90"}
+	}
+	if i.Longitude != 0 && (i.Longitude < -180 || i.Longitude > 180) {
+		return &LabelValidationError{Field: "longitude", Value: i.Longitude, Reason: "must be between -180 and 180"}
 	}
 	return nil
 }

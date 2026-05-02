@@ -29,6 +29,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// haversineKm computes the great-circle distance between two points on Earth
+// using the Haversine formula. Returns distance in kilometers.
+func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKm = 6371.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	lat1Rad := lat1 * math.Pi / 180
+	lat2Rad := lat2 * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return earthRadiusKm * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
 // ProfileMatchConfig controls the profile-based matching recommender.
 type ProfileMatchConfig struct {
 	// MinAge is the minimum age to recommend (overrides user pref if 0).
@@ -72,6 +85,8 @@ type userPreference struct {
 	PrefCity      string
 	PrefPurpose   string
 	PrefMaxDistKm int
+	Lat           float64 // user's latitude for distance filtering
+	Lon           float64 // user's longitude for distance filtering
 }
 
 // getUserPreference reads profile-matching preferences from the requesting user's Labels.
@@ -115,6 +130,12 @@ func (r *Recommender) getUserPreference(ctx context.Context) (userPreference, er
 		}
 		if v, ok := labels["pref_max_distance_km"].(float64); ok && v > 0 {
 			pref.PrefMaxDistKm = int(v)
+		}
+		if v, ok := labels["latitude"].(float64); ok && v != 0 {
+			pref.Lat = v
+		}
+		if v, ok := labels["longitude"].(float64); ok && v != 0 {
+			pref.Lon = v
 		}
 	}
 	return pref, nil
@@ -191,12 +212,14 @@ func (r *Recommender) recommendProfileMatch(ctx context.Context) ([]cache.Score,
 
 // candidateItem holds an item with parsed profile fields for matching.
 type candidateItem struct {
-	item   data.Item
-	age    int
-	city   string
-	purpose string
-	profileScore float64 // 0-1, derived from completeness and quality metrics
-	isVerified  bool
+	item           data.Item
+	age            int
+	city           string
+	purpose        string
+	profileScore   float64 // 0-1, derived from completeness and quality metrics
+	isVerified     bool
+	lat            float64 // candidate's latitude
+	lon            float64 // candidate's longitude
 }
 
 // fetchProfileCandidates retrieves items matching the user's stated preferences.
@@ -240,6 +263,13 @@ func (r *Recommender) fetchProfileCandidates(
 			if pref.PrefPurpose != "" && c.purpose != "" && c.purpose != pref.PrefPurpose {
 				continue
 			}
+			// Distance filtering using Haversine formula.
+			if pref.PrefMaxDistKm > 0 && pref.Lat != 0 && pref.Lon != 0 && c.lat != 0 && c.lon != 0 {
+				dist := haversineKm(pref.Lat, pref.Lon, c.lat, c.lon)
+				if dist > float64(pref.PrefMaxDistKm) {
+					continue
+				}
+			}
 			if !activeCutoff.IsZero() && !c.item.Timestamp.IsZero() && c.item.Timestamp.Before(activeCutoff) {
 				continue
 			}
@@ -282,6 +312,12 @@ func (r *Recommender) fetchProfileCandidates(
 				}
 				if pref.PrefPurpose != "" && c.purpose != "" && c.purpose != pref.PrefPurpose {
 					continue
+				}
+				if pref.PrefMaxDistKm > 0 && pref.Lat != 0 && pref.Lon != 0 && c.lat != 0 && c.lon != 0 {
+					dist := haversineKm(pref.Lat, pref.Lon, c.lat, c.lon)
+					if dist > float64(pref.PrefMaxDistKm) {
+						continue
+					}
 				}
 				if !activeCutoff.IsZero() && !c.item.Timestamp.IsZero() && c.item.Timestamp.Before(activeCutoff) {
 					continue
@@ -355,6 +391,14 @@ func (r *Recommender) parseCandidate(item data.Item, cfg ProfileMatchConfig) *ca
 		// Verified flag.
 		if v, ok := labels["is_verified"].(bool); ok {
 			c.isVerified = v
+		}
+
+		// Latitude and longitude for distance filtering.
+		if v, ok := labels["latitude"].(float64); ok {
+			c.lat = v
+		}
+		if v, ok := labels["longitude"].(float64); ok {
+			c.lon = v
 		}
 	}
 
