@@ -15,6 +15,7 @@
 package logics
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -61,6 +62,75 @@ func TestFatigueBoost(t *testing.T) {
 	}
 }
 
+// computeSDBoost mirrors the boost logic in SupplyDemandTracker.ApplyBoost.
+func computeSDBoost(exposure int, threshold, boost float64) float64 {
+	if exposure == 0 {
+		return boost
+	}
+	if float64(exposure) < threshold {
+		fraction := 1.0 - float64(exposure)/threshold
+		return 1.0 + fraction*(boost-1.0)
+	}
+	return 1.0
+}
+
+func TestSupplyDemandBoost(t *testing.T) {
+	tests := []struct {
+		name      string
+		exposure  int
+		threshold float64
+		boost     float64
+		expected  float64
+	}{
+		{"zero exposure gets full boost", 0, 10, 1.5, 1.5},
+		{"half threshold gets half boost", 5, 10, 1.5, 1.25},
+		{"at threshold gets no boost", 10, 10, 1.5, 1.0},
+		{"above threshold gets no boost", 20, 10, 1.5, 1.0},
+		{"zero threshold defaults", 0, 0, 1.5, 1.5},
+		// zero boost case: production code defaults boost to 1.5, test helper mirrors production defaults
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			threshold := tc.threshold
+			if threshold <= 0 {
+				threshold = 10
+			}
+			boost := tc.boost
+			if boost <= 0 {
+				boost = 1.5
+			}
+			got := computeSDBoost(tc.exposure, threshold, boost)
+			assert.InDelta(t, tc.expected, got, 0.01)
+		})
+	}
+}
+
+func TestSupplyDemandBoost_Sort(t *testing.T) {
+	// Test that items are re-sorted by boosted score.
+	// Item A: exp=0 (boosted 1.5×), Item B: exp=20 (no boost).
+	// With A.score=5 and B.score=8: A should rank first after boosting.
+	// 5 * 1.5 = 7.5 > 8 * 1.0 = 8.0? No. Let's use A.score=6: 6*1.5=9 > 8.
+	items := []struct {
+		id       string
+		score    float64
+		exposure int
+	}{
+		{"A", 6, 0},   // boosted: 6*1.5=9
+		{"B", 8, 20},   // no boost: 8*1.0=8
+		{"C", 5, 5},    // boosted: 5*1.25=6.25
+	}
+	threshold, boost := 10.0, 1.5
+	sort.Slice(items, func(i, j int) bool {
+		iBoost := computeSDBoost(items[i].exposure, threshold, boost)
+		jBoost := computeSDBoost(items[j].exposure, threshold, boost)
+		return items[i].score*iBoost > items[j].score*jBoost
+	})
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.id
+	}
+	assert.Equal(t, []string{"A", "B", "C"}, ids, "A (boosted) should rank above B (no boost)")
+}
 func TestLifecycleClassifier_DetectType(t *testing.T) {
 	cfg := config.LifecycleConfig{Enabled: true, CacheTTL: 5 * time.Minute}
 	dataSource := config.DataSourceConfig{

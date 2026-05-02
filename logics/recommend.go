@@ -16,6 +16,7 @@ package logics
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"sort"
 	"strings"
@@ -60,6 +61,10 @@ type Recommender struct {
 	// Lifecycle-aware recall support
 	lifecycleClassifier *LifecycleClassifier
 	lifecycleProfile   *LifecycleProfile
+
+	// Supply/demand balance support (Phase 4)
+	supplyDemandTracker *SupplyDemandTracker
+	redisClient        *redis.Client
 }
 
 type RecommenderFunc func(ctx context.Context) ([]cache.Score, string, error)
@@ -137,6 +142,15 @@ func NewRecommenderWithLifecycle(
 			recommender.lifecycleProfile = profile
 		}
 	}
+	// Set up supply/demand tracker if enabled (Phase 4)
+	if config.SupplyDemand.Enabled && redisClient != nil {
+		recommender.redisClient = redisClient
+		recommender.supplyDemandTracker = NewSupplyDemandTracker(
+			config.SupplyDemand,
+			redisClient,
+			dataClient,
+		)
+	}
 	return recommender, nil
 }
 
@@ -198,6 +212,15 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 			fbResult = r.filterResultByGender(ctx, fbResult)
 			// Merge pool results with fallback (prefer pool results for correct gender)
 			result = r.mergeWithFallback(ctx, result, fbResult, limit)
+		}
+		// Phase 4: Apply supply/demand balance boost to re-rank results.
+		// Low-exposure items receive a boost multiplier to balance gender group exposure.
+		result, err = r.applySupplyDemandBoost(ctx, result)
+		if err != nil {
+			log.Logger().Warn("failed to apply supply/demand boost",
+				zap.String("user_id", r.userId),
+				zap.Error(err))
+			// Non-fatal: continue without supply/demand boost
 		}
 		return result, nil
 	}
@@ -824,3 +847,185 @@ func (r *Recommender) mergeWithFallback(ctx context.Context, poolResult, fbResul
 		zap.Int("final_count", len(result)))
 	return result
 }
+
+// SupplyDemandTracker implements gender-group exposure balancing for recommendations.
+// It tracks how many times items of each gender group have been recommended today,
+// then boosts low-exposure items to re-balance supply across gender groups.
+type SupplyDemandTracker struct {
+	cfg   config.SupplyDemandConfig
+	redis *redis.Client
+	data  data.Database
+}
+
+// NewSupplyDemandTracker creates a supply/demand tracker.
+func NewSupplyDemandTracker(
+	cfg config.SupplyDemandConfig,
+	redisClient *redis.Client,
+	dataClient data.Database,
+) *SupplyDemandTracker {
+	return &SupplyDemandTracker{
+		cfg:   cfg,
+		redis: redisClient,
+		data:  dataClient,
+	}
+}
+
+// applySupplyDemandBoost re-ranks recommendations by applying a boost to
+// low-exposure items. Items whose gender group is below the exposure threshold
+// receive a boost multiplier (up to cfg.LowExposureBoost), making them more
+// likely to appear higher in the final results. After boosting, items are
+// re-sorted by boosted score and their exposure is recorded in Redis.
+func (t *SupplyDemandTracker) ApplyBoost(ctx context.Context, results []cache.Score) ([]cache.Score, error) {
+	if len(results) == 0 || !t.cfg.Enabled {
+		return results, nil
+	}
+
+	// Build today's Redis key for each gender group
+	today := time.Now().UTC().Format("2006-01-02")
+	itemIds := make([]string, len(results))
+	for i, s := range results {
+		itemIds[i] = s.Id
+	}
+
+	// Batch-fetch items to get their gender
+	items, err := t.data.BatchGetItems(ctx, itemIds, data.GetOptions{SkipHidden: true})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	itemGenderMap := make(map[string]string, len(items))
+	for _, it := range items {
+		if len(it.Categories) > 0 {
+			itemGenderMap[it.ItemId] = it.Categories[0]
+		}
+	}
+
+	// Batch-fetch current exposure counts per gender group from Redis
+	// Redis key: sd:exposure:{gender}:{date}
+	exposureMap := make(map[string]int) // itemId → current daily exposure count
+	genderGroups := t.cfg.GenderGroups
+	if len(genderGroups) == 0 {
+		genderGroups = []string{"M", "F", "O"}
+	}
+
+	if t.redis != nil {
+		pipe := t.redis.Pipeline()
+		pipeResults := make([]*redis.MapStringStringCmd, len(genderGroups))
+		for i, gender := range genderGroups {
+			key := fmt.Sprintf("sd:exposure:%s:%s", gender, today)
+			pipeResults[i] = pipe.HGetAll(ctx, key)
+		}
+		if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+			log.Logger().Warn("failed to fetch supply/demand exposure",
+				zap.Error(err))
+		}
+		for i := range genderGroups {
+			val, err := pipeResults[i].Result()
+			if err == nil {
+				for itemId, expStr := range val {
+					var exp int
+					fmt.Sscanf(expStr, "%d", &exp)
+					exposureMap[itemId] = exp
+				}
+			}
+		}
+	}
+
+	// Apply boost: items below threshold get boosted
+	threshold := float64(t.cfg.LowExposureThreshold)
+	if threshold <= 0 {
+		threshold = 10
+	}
+	boost := t.cfg.LowExposureBoost
+	if boost <= 0 {
+		boost = 1.5
+	}
+
+	boosted := make([]cache.Score, 0, len(results))
+	exposureUpdates := make(map[string]int) // itemId → increment by 1
+	boostStats := make(map[string]int)     // gender → count of boosted items
+
+	for _, s := range results {
+		gender := itemGenderMap[s.Id]
+		if gender == "" {
+			gender = "O" // default to O for unknown gender
+		}
+		exp := exposureMap[s.Id]
+		var finalScore float64
+		if exp == 0 {
+			// Never exposed: maximum boost
+			finalScore = s.Score * boost
+			boostStats[gender]++
+		} else if float64(exp) < threshold {
+			// Partial boost proportional to how far below threshold
+			fraction := 1.0 - float64(exp)/threshold
+			multiplier := 1.0 + fraction*(boost-1.0)
+			finalScore = s.Score * multiplier
+			boostStats[gender]++
+		} else {
+			// Above threshold: no boost
+			finalScore = s.Score
+		}
+		boosted = append(boosted, cache.Score{
+			Id:        s.Id,
+			Score:     finalScore,
+			Timestamp: s.Timestamp,
+		})
+		exposureUpdates[s.Id] = 1
+	}
+
+	// Sort by boosted score descending
+	sort.Slice(boosted, func(i, j int) bool {
+		return boosted[i].Score > boosted[j].Score
+	})
+
+	// Record exposure asynchronously (increment count for each recommended item)
+	if t.redis != nil && len(exposureUpdates) > 0 {
+		go t.recordExposure(context.Background(), itemGenderMap, exposureUpdates, today)
+	}
+
+	log.Logger().Warn("supply/demand boost applied",
+		zap.Int("result_count", len(results)),
+		zap.Int("threshold", int(threshold)),
+		zap.Float64("boost", boost),
+		zap.Any("boost_stats", boostStats))
+
+	return boosted, nil
+}
+
+// recordExposure increments the daily exposure counter for recommended items in Redis.
+// This runs in a goroutine and does not block the recommendation response.
+func (t *SupplyDemandTracker) recordExposure(ctx context.Context, itemGenderMap map[string]string, updates map[string]int, date string) {
+	if t.redis == nil {
+		return
+	}
+	// Group updates by gender
+	genderUpdates := make(map[string][]string)
+	for itemId := range updates {
+		gender := itemGenderMap[itemId]
+		if gender == "" {
+			gender = "O"
+		}
+		genderUpdates[gender] = append(genderUpdates[gender], itemId)
+	}
+	// Batch update each gender group's exposure hash
+	pipe := t.redis.Pipeline()
+	for gender, itemIds := range genderUpdates {
+		key := fmt.Sprintf("sd:exposure:%s:%s", gender, date)
+		for _, itemId := range itemIds {
+			pipe.HIncrBy(ctx, key, itemId, 1)
+		}
+		pipe.Expire(ctx, key, 25*time.Hour) // TTL slightly over 24h to cover timezone overlap
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Logger().Warn("failed to record supply/demand exposure", zap.Error(err))
+	}
+}
+
+// applySupplyDemandBoost is the Recommender wrapper that delegates to SupplyDemandTracker.
+func (r *Recommender) applySupplyDemandBoost(ctx context.Context, results []cache.Score) ([]cache.Score, error) {
+	if r.supplyDemandTracker == nil {
+		return results, nil
+	}
+	return r.supplyDemandTracker.ApplyBoost(ctx, results)
+}
+
