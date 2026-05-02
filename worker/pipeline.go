@@ -88,17 +88,16 @@ type Pipeline struct {
 	dontskipColdStartUsers   bool
 }
 
-func (p *Pipeline) Recommend(ctx context.Context, users []data.User, progress func(completed, throughput int)) {
+func (p *Pipeline) Recommend(ctx context.Context, users <-chan data.User, progress func(completed, throughput int)) {
 	startRecommendTime := time.Now()
 	itemCache := NewItemCache(p.DataClient)
 	log.Logger().Info("ranking recommendation",
-		zap.Int("n_working_users", len(users)),
 		zap.Int("n_jobs", p.Jobs),
 		zap.Int("cache_size", p.Config.Recommend.CacheSize))
 
 	// progress tracker
 	completed := make(chan struct{}, 1000)
-	_, span := p.Tracer.Start(ctx, "Generate recommendation", len(users))
+	_, span := p.Tracer.Start(ctx, "Generate recommendation", 0)
 	defer span.End()
 
 	go func() {
@@ -138,11 +137,10 @@ func (p *Pipeline) Recommend(ctx context.Context, users []data.User, progress fu
 	)
 
 	defer MemoryInuseBytesVec.WithLabelValues("user_feedback_cache").Set(0)
-	if err := parallel.Detachable(ctx, len(users), p.Jobs, p.Config.OpenAI.ChatCompletionRPM, func(pCtx *parallel.Context, jobId int) {
+	parallel.ForChanDetachable(ctx, users, p.Jobs, p.Config.OpenAI.ChatCompletionRPM, func(pCtx *parallel.Context, user data.User) {
 		defer func() {
 			completed <- struct{}{}
 		}()
-		user := users[jobId]
 		userId := user.UserId
 		// skip inactive users before max recommend period
 		if !p.checkUserActiveTime(ctx, userId) || !p.checkRecommendCacheOutOfDate(ctx, userId) {
@@ -271,9 +269,7 @@ func (p *Pipeline) Recommend(ctx context.Context, users []data.User, progress fu
 		); err != nil {
 			log.Logger().Error("failed to cache recommendation time", zap.Error(err))
 		}
-	}); err != nil {
-		log.Logger().Error("recommendation was cancelled", zap.Error(err))
-	}
+	})
 	close(completed)
 	log.Logger().Info("complete ranking recommendation",
 		zap.String("used_time", time.Since(startTime).String()))
@@ -314,53 +310,30 @@ func (p *Pipeline) checkUserActiveTime(ctx context.Context, userId string) bool 
 
 // checkRecommendCacheOutOfDate checks if recommend cache stale.
 func (p *Pipeline) checkRecommendCacheOutOfDate(ctx context.Context, userId string) bool {
-	var (
-		activeTime    time.Time
-		recommendTime time.Time
-		err           error
-	)
-
-	// 1. If cache is empty, stale.
-	items, err := p.CacheClient.SearchScores(ctx, cache.Recommend, userId, nil, 0, -1)
-	if err != nil {
-		log.Logger().Error("failed to load offline recommendation", zap.String("user_id", userId), zap.Error(err))
-		return true
-	} else if len(items) == 0 {
-		return true
-	}
-
-	// 2. If digest is empty or not match, stale.
+	// 1. If digest is empty or not match, stale (no need for SearchScores).
 	digest, err := p.CacheClient.Get(ctx, cache.Key(cache.RecommendDigest, userId)).String()
 	if err != nil {
 		log.Logger().Error("failed to read offline recommendation digest", zap.String("user_id", userId), zap.Error(err))
 		return true
 	}
-	if digest == "" {
-		return true
-	}
-	if digest != p.Config.Recommend.Hash() {
+	if digest == "" || digest != p.Config.Recommend.Hash() {
 		return true
 	}
 
-	// read active time
-	activeTime, err = p.CacheClient.Get(ctx, cache.Key(cache.LastModifyUserTime, userId)).Time()
-	if err != nil {
-		log.Logger().Error("failed to read last modify user time", zap.String("user_id", userId), zap.Error(err))
-	}
-
-	// 3. If update time is empty, stale.
-	recommendTime, err = p.CacheClient.Get(ctx, cache.Key(cache.RecommendUpdateTime, userId)).Time()
+	// 2. Read active time and update time in parallel (2 calls, no pipeline needed from interface).
+	activeTime, _ := p.CacheClient.Get(ctx, cache.Key(cache.LastModifyUserTime, userId)).Time()
+	recommendTime, err := p.CacheClient.Get(ctx, cache.Key(cache.RecommendUpdateTime, userId)).Time()
 	if err != nil {
 		log.Logger().Error("failed to read last update user recommend time", zap.Error(err))
 		return true
 	}
 
-	// 4. If update time + cache expire > current time, not stale.
+	// 3. If update time + cache expire > current time, not stale.
 	if recommendTime.Before(time.Now().Add(-p.Config.Recommend.CacheExpire)) {
 		return true
 	}
 
-	// 5. If active time > recommend time, not stale.
+	// 4. If active time > recommend time, not stale.
 	if activeTime.Before(recommendTime) {
 		timeoutTime := recommendTime.Add(p.Config.Recommend.Ranker.CacheExpire)
 		return timeoutTime.Before(time.Now())

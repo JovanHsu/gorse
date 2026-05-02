@@ -1395,14 +1395,14 @@ func (m *Master) updateRecommend(ctx context.Context) error {
 		}
 	}
 
-	// Pull all users from database
-	users, err := m.pullAllUsers(ctx)
-	if err != nil {
+	// Pull all users from database as a stream
+	userChan, errChan := m.pullAllUsers(ctx)
+	if err := <-errChan; err != nil {
 		log.Logger().Error("failed to pull users", zap.Error(err))
 		return errors.Trace(err)
 	}
 
-	pipeline.Recommend(ctx, users, func(completed, throughput int) {
+	pipeline.Recommend(ctx, userChan, func(completed, throughput int) {
 		log.Logger().Info("ranking recommendation",
 			zap.Int("n_complete_users", completed),
 			zap.Int("throughput", throughput))
@@ -1410,15 +1410,22 @@ func (m *Master) updateRecommend(ctx context.Context) error {
 	return nil
 }
 
-// pullAllUsers pulls all users from the data store.
-func (m *Master) pullAllUsers(ctx context.Context) ([]data.User, error) {
-	var users []data.User
-	userChan, errChan := m.DataClient.GetUserStream(ctx, batchSize)
-	for batchUsers := range userChan {
-		users = append(users, batchUsers...)
-	}
-	if err := <-errChan; err != nil {
-		return nil, errors.Trace(err)
-	}
-	return users, nil
+// pullAllUsers streams all users from the data store (no full materialization).
+func (m *Master) pullAllUsers(ctx context.Context) (<-chan data.User, <-chan error) {
+	userChan := make(chan data.User)
+	errChan := make(chan error, 1)
+	go func() {
+		defer close(userChan)
+		defer close(errChan)
+		stream, streamErrChan := m.DataClient.GetUserStream(ctx, batchSize)
+		for batchUsers := range stream {
+			for _, user := range batchUsers {
+				userChan <- user
+			}
+		}
+		if err := <-streamErrChan; err != nil {
+			errChan <- errors.Trace(err)
+		}
+	}()
+	return userChan, errChan
 }

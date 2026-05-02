@@ -359,17 +359,11 @@ func (w *Worker) Serve() {
 	go w.ServeHTTP()
 
 	loop := func() {
-		// pull users
-		workingUsers, err := w.pullUsers(w.peers, w.me)
-		if err != nil {
-			log.Logger().Error("failed to split users", zap.Error(err),
-				zap.String("me", w.me),
-				zap.Strings("workers", w.peers))
-			return
-		}
+		// pull users as a stream (no full materialization)
+		userChan, errChan := w.pullUsers(w.peers, w.me)
 
-		// recommendation
-		w.Recommend(context.Background(), workingUsers, func(completed, throughput int) {
+		// recommendation (streaming from pullUsers)
+		w.Recommend(context.Background(), userChan, func(completed, throughput int) {
 			log.Logger().Info("ranking recommendation",
 				zap.Int("n_complete_users", completed),
 				zap.Int("throughput", throughput))
@@ -379,6 +373,14 @@ func (w *Worker) Serve() {
 				}
 			}
 		})
+
+		// check pullUsers errors after Recommend completes
+		if err := <-errChan; err != nil {
+			log.Logger().Error("failed to split users", zap.Error(err),
+				zap.String("me", w.me),
+				zap.Strings("workers", w.peers))
+			return
+		}
 	}
 
 	for {
@@ -406,36 +408,44 @@ func (w *Worker) WorkerName() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (w *Worker) pullUsers(peers []string, me string) ([]data.User, error) {
-	ctx := context.Background()
-	// locate me
-	if !lo.Contains(peers, me) {
-		return nil, errors.New("current node isn't in worker nodes")
-	}
-	// create consistent hash ring
-	c := consistent.New()
-	for _, peer := range peers {
-		c.Add(peer)
-	}
-	// pull users from database
-	var users []data.User
-	userChan, errChan := w.DataClient.GetUserStream(ctx, batchSize)
-	for batchUsers := range userChan {
-		for _, user := range batchUsers {
-			p, err := c.Get(user.UserId)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			if p == me {
-				users = append(users, user)
+func (w *Worker) pullUsers(peers []string, me string) (<-chan data.User, <-chan error) {
+	userChan := make(chan data.User)
+	errChan := make(chan error, 1)
+	go func() {
+		defer close(userChan)
+		defer close(errChan)
+		// locate me
+		if !lo.Contains(peers, me) {
+			errChan <- errors.New("current node isn't in worker nodes")
+			return
+		}
+		// create consistent hash ring
+		c := consistent.New()
+		for _, peer := range peers {
+			c.Add(peer)
+		}
+		// stream users from database, filter by hash ring (no full materialization)
+		ctx := context.Background()
+		userStream, streamErrChan := w.DataClient.GetUserStream(ctx, batchSize)
+		for batchUsers := range userStream {
+			for _, user := range batchUsers {
+				p, err := c.Get(user.UserId)
+				if err != nil {
+					errChan <- errors.Trace(err)
+					return
+				}
+				if p == me {
+					userChan <- user
+				}
 			}
 		}
-	}
-	if err := <-errChan; err != nil {
-		return nil, errors.Trace(err)
-	}
-	return users, nil
+		if err := <-streamErrChan; err != nil {
+			errChan <- err
+		}
+	}()
+	return userChan, errChan
 }
+
 
 type HealthStatus struct {
 	Ready               bool
