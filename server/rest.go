@@ -1588,8 +1588,67 @@ func (s *RestServer) insertFeedback(overwrite bool) func(request *restful.Reques
 			InternalServerError(response, err)
 			return
 		}
+		// Phase 3: Update fatigue state in Redis after swipe feedback.
+		// This feeds the lifecycle fatigue detection on the next recommendation request.
+		s.updateFatigueStateFromFeedback(ctx, feedback)
 		log.ResponseLogger(response).Info("Insert feedback successfully", zap.Int("num_feedback", len(feedback)))
 		Ok(response, Success{RowAffected: len(feedback)})
+	}
+}
+
+// updateFatigueStateFromFeedback updates Redis fatigue state based on submitted feedback.
+// For swipe-type feedback (like, dislike, block), increments the fatigue swipe counter.
+// For match feedback, resets the fatigue counter to zero.
+// This is called after feedback is persisted to the data store.
+func (s *RestServer) updateFatigueStateFromFeedback(ctx context.Context, feedback []data.Feedback) {
+	if s.RedisClient == nil || !s.Config.Recommend.Fatigue.Enabled {
+		return
+	}
+
+	// Group feedback by user, tracking match vs. swipe events
+	type userFatigue struct {
+		swipeCount int
+		hasMatch   bool
+	}
+	userStates := make(map[string]*userFatigue)
+
+	for _, f := range feedback {
+		ft := f.FeedbackType
+		if ft == "match" {
+			if uf, ok := userStates[f.UserId]; ok {
+				uf.hasMatch = true
+			} else {
+				userStates[f.UserId] = &userFatigue{hasMatch: true}
+			}
+		} else if ft == "like" || ft == "dislike" || ft == "block" {
+			// Active swipe: counts toward fatigue
+			if uf, ok := userStates[f.UserId]; ok {
+				uf.swipeCount++
+			} else {
+				userStates[f.UserId] = &userFatigue{swipeCount: 1}
+			}
+		}
+	}
+
+	// Apply state changes in Redis
+	for userId, uf := range userStates {
+		key := fmt.Sprintf("fatigue:%s", userId)
+		pipe := s.RedisClient.Pipeline()
+		if uf.hasMatch {
+			// Match resets fatigue
+			pipe.HSet(ctx, key, "last_match_at", time.Now().Format(time.RFC3339))
+			pipe.HSet(ctx, key, "swipe_count", "0")
+			pipe.HSet(ctx, key, "recent_types", "[]")
+		} else if uf.swipeCount > 0 {
+			// Active swipe increments fatigue counter
+			pipe.HIncrBy(ctx, key, "swipe_count", int64(uf.swipeCount))
+		}
+		pipe.Expire(ctx, key, 24*time.Hour)
+		if _, err := pipe.Exec(ctx); err != nil {
+			log.Logger().Warn("failed to update fatigue state",
+				zap.String("user_id", userId),
+				zap.Error(err))
+		}
 	}
 }
 

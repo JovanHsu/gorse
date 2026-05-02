@@ -25,6 +25,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// computeFatigueBoost is a test helper that mirrors the boost logic in recommendWithPools.
+func computeFatigueBoost(swipeCount, triggerSwipes int) float64 {
+	triggerThreshold := float64(triggerSwipes)
+	if triggerThreshold <= 0 {
+		triggerThreshold = 50
+	}
+	boost := 1.0 + float64(swipeCount)/triggerThreshold
+	if boost > 3.0 {
+		boost = 3.0
+	}
+	return boost
+}
+
+func TestFatigueBoost(t *testing.T) {
+	tests := []struct {
+		name           string
+		swipeCount     int
+		triggerSwipes  int
+		expectedBoost  float64
+	}{
+		{"no swipes", 0, 50, 1.0},
+		{"25 swipes (half threshold)", 25, 50, 1.5},
+		{"50 swipes (at threshold)", 50, 50, 2.0},
+		{"75 swipes (over threshold)", 75, 50, 2.5},
+		{"100 swipes (capped at 3x)", 100, 50, 3.0},
+		{"zero trigger threshold defaults to 50", 50, 0, 2.0},
+		{"150 swipes (capped)", 150, 50, 3.0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			boost := computeFatigueBoost(tc.swipeCount, tc.triggerSwipes)
+			assert.InDelta(t, tc.expectedBoost, boost, 0.01)
+		})
+	}
+}
+
 func TestLifecycleClassifier_DetectType(t *testing.T) {
 	cfg := config.LifecycleConfig{Enabled: true, CacheTTL: 5 * time.Minute}
 	dataSource := config.DataSourceConfig{

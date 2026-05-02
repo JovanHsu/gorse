@@ -16,6 +16,7 @@ package logics
 
 import (
 	"context"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ const (
 	UserToUserRecommender      = "user-to-user/"
 	ExternalRecommender        = "external/"
 	CollaborativeRecommender   = "collaborative"
+	FatigueBreakerRecommender  = "fatigue_breaker"
 )
 
 type Recommender struct {
@@ -250,8 +252,33 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 	}
 	candidates := make(map[string]*candidate)
 
+	// Phase 3: Fatigue state boosting.
+	// When user is actively swiping without matches, increase fatigue pool weight
+	// to inject diverse, non-personalized content and re-engage the user.
+	fatigueBoost := 1.0
+	if r.lifecycleProfile != nil && r.lifecycleProfile.FatigueState != nil && r.lifecycleProfile.FatigueState.SwipeCount > 0 {
+		swipes := r.lifecycleProfile.FatigueState.SwipeCount
+		// Progressive boost: 1 + (swipes / triggerThreshold), capped at 3×
+		triggerThreshold := float64(r.config.Fatigue.TriggerSwipes)
+		if triggerThreshold <= 0 {
+			triggerThreshold = 50
+		}
+		fatigueBoost = 1.0 + float64(swipes)/triggerThreshold
+		if fatigueBoost > 3.0 {
+			fatigueBoost = 3.0
+		}
+		log.Logger().Warn("fatigue pool boost active",
+			zap.String("user_id", r.userId),
+			zap.Int("swipe_count", swipes),
+			zap.Float64("boost_factor", fatigueBoost))
+	}
+
 	for _, blend := range poolBlends {
 		poolWeight := blend.Weight
+		// Boost fatigue pool when user is in active fatigue state
+		if blend.PoolName == "fatigue" && fatigueBoost > 1.0 {
+			poolWeight *= fatigueBoost
+		}
 		if poolWeight <= 0 {
 			continue
 		}
@@ -439,6 +466,8 @@ func (r *Recommender) parse(fullname string) (RecommenderFunc, error) {
 		return r.recommendCollaborative, nil
 	} else if fullname == LatestRecommender {
 		return r.recommendLatest, nil
+	} else if fullname == FatigueBreakerRecommender {
+		return r.recommendFatigueBreaker, nil
 	} else if after, ok := strings.CutPrefix(fullname, NonPersonalizedRecommender); ok {
 		name := after
 		return r.recommendNonPersonalized(name), nil
@@ -476,6 +505,44 @@ func (r *Recommender) recommendLatest(ctx context.Context) ([]cache.Score, strin
 		}
 	}
 	return scores, "latest", nil
+}
+
+// recommendFatigueBreaker returns diverse, non-personalized items to break recommendation fatigue.
+// It combines latest items with random perturbation to escape the personalized echo chamber.
+// When a user is fatigued (many swipes without match), their recommendations become stale;
+// this recommender injects freshness and randomness to re-engage the user.
+func (r *Recommender) recommendFatigueBreaker(ctx context.Context) ([]cache.Score, string, error) {
+	// Get latest items for freshness
+	var after *time.Time
+	if r.config.DataSource.ItemTTL > 0 {
+		after = new(time.Now().AddDate(0, 0, -int(r.config.DataSource.ItemTTL)))
+	}
+	items, err := r.dataClient.GetLatestItems(ctx, r.config.CacheSize, nil, after)
+	if err != nil {
+		return nil, "", errors.Trace(err)
+	}
+
+	// Apply random perturbation to scores to break echo chamber.
+	// Items get a base freshness score plus a random component so the
+	// same items don't appear at the top on every request.
+	nowUnix := float64(time.Now().Unix())
+	scores := make([]cache.Score, 0, len(items))
+	for _, item := range items {
+		if r.excludeSet.Contains(item.ItemId) {
+			continue
+		}
+		// Freshness score (newer items score higher) + random perturbation
+		freshness := nowUnix - float64(item.Timestamp.Unix())
+		perturbation := (rand.Float64() - 0.5) * r.config.Fatigue.RandomRatio * freshness
+		score := float64(item.Timestamp.Unix()) + perturbation
+		scores = append(scores, cache.Score{
+			Id:         item.ItemId,
+			Score:      score,
+			Timestamp:  item.Timestamp,
+			Categories: item.Categories,
+		})
+	}
+	return scores, FatigueBreakerRecommender, nil
 }
 
 func (r *Recommender) recommendNonPersonalized(name string) RecommenderFunc {
