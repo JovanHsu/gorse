@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gorse-io/gorse/config"
 	"github.com/pkg/errors"
@@ -70,7 +71,7 @@ func NewExternal(cfg config.ExternalConfig) (*External, error) {
 	// Register fetch function
 	external := &External{
 		vm:     vm,
-		client: &http.Client{},
+		client: &http.Client{Timeout: 10 * time.Second},
 		script: cfg.Script,
 		name:   cfg.Name,
 	}

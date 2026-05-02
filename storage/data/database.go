@@ -236,12 +236,19 @@ type GetOptions struct {
 	After       *time.Time
 }
 
-type Database interface {
-	Init() error
-	Ping() error
-	Close() error
-	Optimize() error
-	Purge() error
+// UserStore manages user data.
+type UserStore interface {
+	GetUser(ctx context.Context, userId string) (User, error)
+	GetUsers(ctx context.Context, cursor string, n int) (string, []User, error)
+	BatchInsertUsers(ctx context.Context, users []User) error
+	DeleteUser(ctx context.Context, userId string) error
+	ModifyUser(ctx context.Context, userId string, patch UserPatch) error
+	GetUserStream(ctx context.Context, batchSize int) (chan []User, chan error)
+	CountUsers(ctx context.Context) (int, error)
+}
+
+// ItemStore manages item data.
+type ItemStore interface {
 	BatchInsertItems(ctx context.Context, items []Item) error
 	BatchGetItems(ctx context.Context, itemIds []string, opts GetOptions) ([]Item, error)
 	DeleteItem(ctx context.Context, itemId string) error
@@ -250,22 +257,31 @@ type Database interface {
 	GetItems(ctx context.Context, cursor string, n int, beginTime *time.Time) (string, []Item, error)
 	GetLatestItems(ctx context.Context, n int, categories []string, after *time.Time) ([]Item, error)
 	GetItemFeedback(ctx context.Context, itemId string, feedbackTypes ...string) ([]Feedback, error)
-	BatchInsertUsers(ctx context.Context, users []User) error
-	DeleteUser(ctx context.Context, userId string) error
-	GetUser(ctx context.Context, userId string) (User, error)
-	ModifyUser(ctx context.Context, userId string, patch UserPatch) error
-	GetUsers(ctx context.Context, cursor string, n int) (string, []User, error)
+	GetItemStream(ctx context.Context, batchSize int, timeLimit *time.Time) (chan []Item, chan error)
+	CountItems(ctx context.Context) (int, error)
+}
+
+// FeedbackStore manages feedback data.
+type FeedbackStore interface {
+	GetFeedback(ctx context.Context, cursor string, n int, beginTime, endTime *time.Time, feedbackTypes ...string) (string, []Feedback, error)
 	GetUserFeedback(ctx context.Context, userId string, endTime *time.Time, feedbackTypes ...expression.FeedbackTypeExpression) ([]Feedback, error)
 	GetUserItemFeedback(ctx context.Context, userId, itemId string, feedbackTypes ...string) ([]Feedback, error)
 	DeleteUserItemFeedback(ctx context.Context, userId, itemId string, feedbackTypes ...string) (int, error)
 	BatchInsertFeedback(ctx context.Context, feedback []Feedback, insertUser, insertItem, overwrite bool) error
-	GetFeedback(ctx context.Context, cursor string, n int, beginTime, endTime *time.Time, feedbackTypes ...string) (string, []Feedback, error)
-	GetUserStream(ctx context.Context, batchSize int) (chan []User, chan error)
-	GetItemStream(ctx context.Context, batchSize int, timeLimit *time.Time) (chan []Item, chan error)
 	GetFeedbackStream(ctx context.Context, batchSize int, options ...ScanOption) (chan []Feedback, chan error)
-	CountUsers(ctx context.Context) (int, error)
-	CountItems(ctx context.Context) (int, error)
 	CountFeedback(ctx context.Context) (int, error)
+}
+
+// Database combines all store interfaces.
+type Database interface {
+	Init() error
+	Ping() error
+	Close() error
+	Optimize() error
+	Purge() error
+	UserStore
+	ItemStore
+	FeedbackStore
 }
 
 // Creator creates a database instance.

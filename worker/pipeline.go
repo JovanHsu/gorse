@@ -47,26 +47,13 @@ func compressLabelsEmbeddings(pool *strutil.GoPool, labels any) any {
 	}
 	switch typed := labels.(type) {
 	case map[string]any:
-		result := make(map[string]any, len(typed))
-		for k, v := range typed {
-			result[pool.Align(k)] = compressLabelsEmbeddings(pool, v)
-		}
-		return result
+		return compressMap(pool, typed)
 	case []any:
-		// Try to compress as embedding vector
-		if values, ok := bfloats.FromAny(typed); ok {
-			return values
-		}
-		// Otherwise recursively process each element
-		result := make([]any, len(typed))
-		for i, v := range typed {
-			result[i] = compressLabelsEmbeddings(pool, v)
-		}
-		return result
+		return compressSlice(pool, typed)
 	case []float32:
 		return bfloats.FromFloat32(typed)
 	case []float64:
-		return bfloats.FromFloat32(lo.Map(typed, func(f float64, _ int) float32 { return float32(f) }))
+		return compressFloat64Slice(typed)
 	case []uint16:
 		return typed // Already BF16
 	case string:
@@ -74,6 +61,34 @@ func compressLabelsEmbeddings(pool *strutil.GoPool, labels any) any {
 	default:
 		return labels
 	}
+}
+
+// compressMap recursively processes a map and compresses its values.
+func compressMap(pool *strutil.GoPool, m map[string]any) map[string]any {
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		result[pool.Align(k)] = compressLabelsEmbeddings(pool, v)
+	}
+	return result
+}
+
+// compressSlice processes a slice:
+//   - If it's an embedding vector ([]float32, []float64, []uint16), compress it.
+//   - Otherwise, recursively process each element.
+func compressSlice(pool *strutil.GoPool, s []any) any {
+	if values, ok := bfloats.FromAny(s); ok {
+		return values
+	}
+	result := make([]any, len(s))
+	for i, v := range s {
+		result[i] = compressLabelsEmbeddings(pool, v)
+	}
+	return result
+}
+
+// compressFloat64Slice converts []float64 to BF16.
+func compressFloat64Slice(values []float64) []uint16 {
+	return bfloats.FromFloat32(lo.Map(values, func(f float64, _ int) float32 { return float32(f) }))
 }
 
 type Pipeline struct {

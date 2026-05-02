@@ -32,6 +32,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	en_translations "github.com/go-playground/validator/v10/translations/en"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/gorse-io/gorse/common/consts"
 	"github.com/gorse-io/gorse/common/expression"
 	"github.com/gorse-io/gorse/common/log"
 	"github.com/gorse-io/gorse/common/util"
@@ -464,7 +465,7 @@ func GetDefaultConfig() *Config {
 				ConnMaxLifetime: time.Minute,
 			},
 			Redis: RedisConfig{
-				MaxSearchResults: 10000,
+				MaxSearchResults: consts.DefaultMaxSearchResults,
 			},
 		},
 		Master: MasterConfig{
@@ -472,10 +473,10 @@ func GetDefaultConfig() *Config {
 			Host:            "0.0.0.0",
 			HttpPort:        8088,
 			HttpHost:        "0.0.0.0",
-			HttpCorsDomains: []string{".*"},
+			HttpCorsDomains: []string{},
 			HttpCorsMethods: []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
 			NumJobs:         1,
-			MetaTimeout:     10 * time.Second,
+			MetaTimeout:     consts.DefaultMetaTimeout,
 		},
 		Server: ServerConfig{
 			DefaultN:       10,
