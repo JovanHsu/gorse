@@ -180,6 +180,7 @@ type RecommendConfig struct {
 	MMR           MMRConfig           `mapstructure:"mmr"`
 	SuccessRate   SuccessRateConfig   `mapstructure:"success_rate"`
 	SessionFatigue SessionFatigueConfig `mapstructure:"session_fatigue"`
+	SocialGraph   SocialGraphConfig   `mapstructure:"social_graph"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -524,6 +525,16 @@ type SessionFatigueConfig struct {
 	SwipeThreshold  int     `mapstructure:"swipe_threshold"`    // swipes before fatigue
 	RecsThreshold   int     `mapstructure:"recs_threshold"`    // recs shown before fatigue
 	DiversityBoost  float64 `mapstructure:"diversity_boost"`   // extra explore ratio when fatigued
+}
+
+// SocialGraphConfig controls the social-graph-based recommender.
+type SocialGraphConfig struct {
+	MatchThreshold       int      `mapstructure:"match_threshold"`        // switch to FoF when matches >= threshold (default 10)
+	MaxFriends          int      `mapstructure:"max_friends"`             // max matched users to fetch (default 50)
+	FoFMaxHops          int      `mapstructure:"fof_max_hops"`            // FoF traversal hops, 2 = FoF enabled (default 2)
+	FoFMaxFriendsPerNode int     `mapstructure:"fof_max_friends_per_node"` // max 2-hop friends per 1-hop (default 30)
+	MatchFeedbackType   string   `mapstructure:"match_feedback_type"`    // feedback type for matches (default "match")
+	PositiveFeedbackTypes []string `mapstructure:"positive_feedback_types"` // positive interactions to propagate (default ["like"])
 }
 
 type OpenAIConfig struct {

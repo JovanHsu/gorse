@@ -194,3 +194,13 @@ reset_on_match = true      # 获得 match 后重置计数器
 swipe_threshold = 15       # 连续无 match 划卡阈值
 recs_threshold = 20         # 推荐曝光阈值
 diversity_boost = 0.15    # 疲劳时额外探索比例
+
+# 社交图谱召回 (Phase 4+)
+# 自适应策略：稀疏期用 Match-Liked-Overlap，稠密期用 Friends-of-Friends
+[recommend.social_graph]
+match_threshold = 10           # matches >= 此值切换到 FoF 模式（默认 10）
+max_friends = 50              # 最多取多少个匹配用户
+fof_max_hops = 2              # FoF 跳数，2 = 启用 FoF
+fof_max_friends_per_node = 30 # 每个 1-hop 朋友最多扩展多少 2-hop
+match_feedback_type = "match"  # match 事件作为社交边
+positive_feedback_types = ["like"]  # 正向互动在图中传播

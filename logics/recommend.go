@@ -44,6 +44,7 @@ const (
 	ExternalRecommender        = "external/"
 	CollaborativeRecommender   = "collaborative"
 	FatigueBreakerRecommender  = "fatigue_breaker"
+	SocialGraphRecommender     = "social_graph"
 )
 
 type Recommender struct {
@@ -654,6 +655,8 @@ func (r *Recommender) parse(fullname string) (RecommenderFunc, error) {
 		return r.recommendLatest, nil
 	} else if fullname == FatigueBreakerRecommender {
 		return r.recommendFatigueBreaker, nil
+	} else if fullname == SocialGraphRecommender {
+		return r.recommendSocialGraph, nil
 	} else if after, ok := strings.CutPrefix(fullname, NonPersonalizedRecommender); ok {
 		name := after
 		return r.recommendNonPersonalized(name), nil
