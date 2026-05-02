@@ -97,7 +97,7 @@ func For(ctx context.Context, nJobs, nWorkers int, worker func(int)) error {
 	if nWorkers <= 1 {
 		for i := range nJobs {
 			if err := ctx.Err(); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 			worker(i)
 		}
@@ -116,6 +116,7 @@ func For(ctx context.Context, nJobs, nWorkers int, worker func(int)) error {
 		}()
 		// consumer
 		var wg sync.WaitGroup
+		errs := make([]error, nJobs)
 		for range nWorkers {
 			// start workers
 			wg.Go(func() {
@@ -128,6 +129,7 @@ func For(ctx context.Context, nJobs, nWorkers int, worker func(int)) error {
 							return
 						}
 						if err := ctx.Err(); err != nil {
+							errs[jobId] = err
 							return
 						}
 						worker(jobId)
@@ -136,6 +138,11 @@ func For(ctx context.Context, nJobs, nWorkers int, worker func(int)) error {
 			})
 		}
 		wg.Wait()
+		for _, err := range errs {
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return ctx.Err()
 }
@@ -144,7 +151,7 @@ func ForEach[T any](ctx context.Context, a []T, nWorkers int, worker func(int, T
 	if nWorkers <= 1 {
 		for i, v := range a {
 			if err := ctx.Err(); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 			worker(i, v)
 		}
@@ -163,6 +170,7 @@ func ForEach[T any](ctx context.Context, a []T, nWorkers int, worker func(int, T
 		}()
 		// consumer
 		var wg sync.WaitGroup
+		errs := make([]error, len(a))
 		for range nWorkers {
 			// start workers
 			wg.Go(func() {
@@ -175,6 +183,7 @@ func ForEach[T any](ctx context.Context, a []T, nWorkers int, worker func(int, T
 							return
 						}
 						if err := ctx.Err(); err != nil {
+							errs[job.A] = err
 							return
 						}
 						worker(job.A, job.B)
@@ -183,6 +192,11 @@ func ForEach[T any](ctx context.Context, a []T, nWorkers int, worker func(int, T
 			})
 		}
 		wg.Wait()
+		for _, err := range errs {
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return ctx.Err()
 }

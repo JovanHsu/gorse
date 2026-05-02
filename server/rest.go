@@ -37,6 +37,7 @@ import (
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/juju/errors"
+	"github.com/juju/ratelimit"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/samber/lo"
@@ -55,6 +56,9 @@ const (
 	DetractedAPITag      = "deprecated"
 	apiDocsPath          = "/apidocs/"
 )
+
+// apiRateLimiter limits API requests to 100 per second globally.
+var apiRateLimiter = ratelimit.NewBucketWithRate(100, 100)
 
 // RestServer implements a REST-ful API server.
 type RestServer struct {
@@ -145,6 +149,14 @@ func (s *RestServer) LogFilter(req *restful.Request, resp *restful.Response, cha
 }
 
 func (s *RestServer) AuthFilter(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
+	// Apply global rate limit
+	if apiRateLimiter.TakeAvailable(1) == 0 {
+		log.ResponseLogger(resp).Error("rate limit exceeded")
+		if err := resp.WriteError(http.StatusTooManyRequests, errors.New("rate limited")); err != nil {
+			log.ResponseLogger(resp).Error("failed to write error", zap.Error(err))
+		}
+		return
+	}
 	if strings.HasPrefix(req.SelectedRoute().Path(), "/api/health/") {
 		// Health check APIs don't need API key,
 		chain.ProcessFilter(req, resp)
