@@ -117,8 +117,11 @@ func (s *RestServer) StartHttpServer(container *restful.Container) {
 		zap.Strings("cors_domains", s.Config.Master.HttpCorsDomains),
 	)
 	s.HttpServer = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", s.HttpHost, s.HttpPort),
-		Handler: container,
+		Addr:         fmt.Sprintf("%s:%d", s.HttpHost, s.HttpPort),
+		Handler:      container,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	if err := s.HttpServer.ListenAndServe(); err != http.ErrServerClosed {
 		log.Logger().Fatal("failed to start http server", zap.Error(err))
