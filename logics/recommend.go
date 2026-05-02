@@ -69,6 +69,11 @@ type Recommender struct {
 	// Behavior feature support (Phase 2)
 	behaviorTracker *BehaviorStatsTracker
 	itemStatsTracker *ItemStatsTracker
+
+	// Phase 3: Diversity and session fatigue
+	mmrReranker          *MMRReranker
+	successRateReranker  *SuccessRateReranker
+	sessionFatigueTracker *SessionFatigueTracker
 }
 
 type RecommenderFunc func(ctx context.Context) ([]cache.Score, string, error)
@@ -164,6 +169,18 @@ func NewRecommenderWithLifecycle(
 			recommender.itemStatsTracker = NewItemStatsTracker(config.ItemStats, redisClient)
 		}
 	}
+	// Set up Phase 3 rerankers if enabled
+	if redisClient != nil {
+		if config.MMR.Enabled {
+			recommender.mmrReranker = NewMMRReranker(config.MMR, redisClient, dataClient)
+		}
+		if config.SuccessRate.Enabled {
+			recommender.successRateReranker = NewSuccessRateReranker(config.SuccessRate, redisClient)
+		}
+		if config.SessionFatigue.Enabled {
+			recommender.sessionFatigueTracker = NewSessionFatigueTracker(config.SessionFatigue, redisClient)
+		}
+	}
 	return recommender, nil
 }
 
@@ -239,6 +256,20 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 		// Filter out items with low like rate or high block rate based on computed quality stats.
 		if r.itemStatsTracker != nil {
 			result = r.itemStatsTracker.FilterByQuality(result)
+		}
+		// Phase 3: Apply MMR diversity reranking.
+		// MMR balances relevance with diversity to prevent homogeneous recommendations.
+		if r.mmrReranker != nil && len(result) > 1 {
+			result, _ = r.mmrReranker.Rerank(ctx, result)
+		}
+		// Phase 3: Apply success-rate reranking.
+		// Boost items with high historical like/match rates.
+		if r.successRateReranker != nil && len(result) > 1 {
+			result, _ = r.successRateReranker.Rerank(ctx, result)
+		}
+		// Phase 3: Record recs shown for session fatigue tracking.
+		if r.sessionFatigueTracker != nil && len(result) > 0 {
+			_ = r.sessionFatigueTracker.RecordRecShown(ctx, r.userId, len(result))
 		}
 		return result, nil
 	}
@@ -357,13 +388,26 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		}
 	}
 
-	// Phase 1.5 (Phase 2): Explore/exploit injection.
+	// Phase 1.5 (Phase 2/3): Explore/exploit injection.
 	// Collect fresh explore candidates from latest recommender.
 	// These are items not yet seen by the user, injected based on ExploreRatio.
 	var exploreCandidates []cache.Score
 	exploreRatio := 0.0
 	if r.lifecycleProfile != nil {
 		exploreRatio = r.lifecycleProfile.ExploreRatio
+	}
+	// Phase 3: Session fatigue overrides explore ratio when user is fatigued in session.
+	// Session fatigue = consecutive swipes without match within current session.
+	// A fatigued user gets more fresh/diverse content to re-engage.
+	if r.sessionFatigueTracker != nil {
+		fatigued, diversityBoost := r.sessionFatigueTracker.IsFatigued(ctx, r.userId)
+		if fatigued && diversityBoost > 0 {
+			exploreRatio = min(0.5, exploreRatio+diversityBoost)
+			log.Logger().Info("session fatigue: boosting explore ratio",
+				zap.String("user_id", r.userId),
+				zap.Float64("explore_ratio", exploreRatio),
+				zap.Float64("diversity_boost", diversityBoost))
+		}
 	}
 	if exploreRatio > 0 {
 		// Use the behavior tracker's computed explore ratio if available

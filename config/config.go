@@ -177,6 +177,9 @@ type RecommendConfig struct {
 	VIP           VIPConfig           `mapstructure:"vip"`
 	Behavior      BehaviorConfig      `mapstructure:"behavior"`
 	ItemStats     ItemStatsConfig     `mapstructure:"item_stats"`
+	MMR           MMRConfig           `mapstructure:"mmr"`
+	SuccessRate   SuccessRateConfig   `mapstructure:"success_rate"`
+	SessionFatigue SessionFatigueConfig `mapstructure:"session_fatigue"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -493,6 +496,36 @@ type RerankerAPIConfig struct {
 	URL       string `mapstructure:"url"`
 }
 
+// MMRConfig controls Maximum Marginal Relevance (MMR) diversity reranking.
+type MMRConfig struct {
+	Enabled      bool    `mapstructure:"enabled"`
+	Lambda       float64 `mapstructure:"lambda"`        // diversity weight (0-1), higher = more diverse items
+	WindowSize   int     `mapstructure:"window_size"`    // how many top items to check for similarity
+	AgeDecay     float64 `mapstructure:"age_decay"`     // penalty for similar age (0-1)
+	GenderDecay  float64 `mapstructure:"gender_decay"`  // penalty for same gender (0-1)
+}
+
+// SuccessRateConfig controls historical success-rate based reranking.
+type SuccessRateConfig struct {
+	Enabled       bool    `mapstructure:"enabled"`
+	RedisAddr    string  `mapstructure:"redis_addr"`
+	RedisPassword string `mapstructure:"redis_password"`
+	MinExposures  int     `mapstructure:"min_exposures"`   // minimum exposures before boosting
+	SuccessWeight float64 `mapstructure:"success_weight"`  // weight for success rate (0-1)
+	MatchBoost   float64 `mapstructure:"match_boost"`    // boost multiplier for high match rate items
+}
+
+// SessionFatigueConfig controls real-time session-level fatigue tracking.
+type SessionFatigueConfig struct {
+	Enabled         bool    `mapstructure:"enabled"`
+	RedisAddr       string  `mapstructure:"redis_addr"`
+	RedisPassword   string  `mapstructure:"redis_password"`
+	ResetOnMatch    bool    `mapstructure:"reset_on_match"`    // reset counter when match is recorded
+	SwipeThreshold  int     `mapstructure:"swipe_threshold"`    // swipes before fatigue
+	RecsThreshold   int     `mapstructure:"recs_threshold"`    // recs shown before fatigue
+	DiversityBoost  float64 `mapstructure:"diversity_boost"`   // extra explore ratio when fatigued
+}
+
 type OpenAIConfig struct {
 	BaseURL             string `mapstructure:"base_url"`
 	AuthToken           string `mapstructure:"auth_token"`
@@ -627,6 +660,26 @@ func GetDefaultConfig() *Config {
 				StatsCacheTTL:    600,
 				MinLikeRate:      0.05,
 				MaxBlockRate:     0.1,
+			},
+			MMR: MMRConfig{
+				Enabled:     false,
+				Lambda:      0.3,
+				WindowSize:  10,
+				AgeDecay:    0.2,
+				GenderDecay: 0.3,
+			},
+			SuccessRate: SuccessRateConfig{
+				Enabled:      false,
+				MinExposures: 10,
+				SuccessWeight: 0.2,
+				MatchBoost:   1.5,
+			},
+			SessionFatigue: SessionFatigueConfig{
+				Enabled:        false,
+				ResetOnMatch:   true,
+				SwipeThreshold: 15,
+				RecsThreshold:  20,
+				DiversityBoost: 0.15,
 			},
 		},
 		Tracing: TracingConfig{
@@ -794,6 +847,23 @@ func setDefault() {
 	viper.SetDefault("recommend.item_stats.stats_cache_ttl", defaultConfig.Recommend.ItemStats.StatsCacheTTL)
 	viper.SetDefault("recommend.item_stats.min_like_rate", defaultConfig.Recommend.ItemStats.MinLikeRate)
 	viper.SetDefault("recommend.item_stats.max_block_rate", defaultConfig.Recommend.ItemStats.MaxBlockRate)
+	// [recommend.mmr]
+	viper.SetDefault("recommend.mmr.enabled", defaultConfig.Recommend.MMR.Enabled)
+	viper.SetDefault("recommend.mmr.lambda", defaultConfig.Recommend.MMR.Lambda)
+	viper.SetDefault("recommend.mmr.window_size", defaultConfig.Recommend.MMR.WindowSize)
+	viper.SetDefault("recommend.mmr.age_decay", defaultConfig.Recommend.MMR.AgeDecay)
+	viper.SetDefault("recommend.mmr.gender_decay", defaultConfig.Recommend.MMR.GenderDecay)
+	// [recommend.success_rate]
+	viper.SetDefault("recommend.success_rate.enabled", defaultConfig.Recommend.SuccessRate.Enabled)
+	viper.SetDefault("recommend.success_rate.min_exposures", defaultConfig.Recommend.SuccessRate.MinExposures)
+	viper.SetDefault("recommend.success_rate.success_weight", defaultConfig.Recommend.SuccessRate.SuccessWeight)
+	viper.SetDefault("recommend.success_rate.match_boost", defaultConfig.Recommend.SuccessRate.MatchBoost)
+	// [recommend.session_fatigue]
+	viper.SetDefault("recommend.session_fatigue.enabled", defaultConfig.Recommend.SessionFatigue.Enabled)
+	viper.SetDefault("recommend.session_fatigue.reset_on_match", defaultConfig.Recommend.SessionFatigue.ResetOnMatch)
+	viper.SetDefault("recommend.session_fatigue.swipe_threshold", defaultConfig.Recommend.SessionFatigue.SwipeThreshold)
+	viper.SetDefault("recommend.session_fatigue.recs_threshold", defaultConfig.Recommend.SessionFatigue.RecsThreshold)
+	viper.SetDefault("recommend.session_fatigue.diversity_boost", defaultConfig.Recommend.SessionFatigue.DiversityBoost)
 	// [tracing]
 	viper.SetDefault("tracing.exporter", defaultConfig.Tracing.Exporter)
 	viper.SetDefault("tracing.sampler", defaultConfig.Tracing.Sampler)

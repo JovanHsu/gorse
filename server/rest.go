@@ -575,6 +575,13 @@ func (s *RestServer) CreateWebService() {
 		Reads([]Feedback{}).
 		Returns(http.StatusOK, "OK", []cache.Score{}).
 		Writes([]cache.Score{}))
+	ws.Route(ws.GET("/session/fatigue/{user-id}").To(s.getSessionFatigue).
+		Doc("Get current session-level fatigue state for a user.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{RecommendationAPITag}).
+		Param(ws.HeaderParameter("X-API-Key", "API key").DataType("string")).
+		Param(ws.PathParameter("user-id", "User ID").DataType("string")).
+		Returns(http.StatusOK, "OK", map[string]int{}).
+		Writes(map[string]int{}))
 }
 
 // ParseInt parses integers from the query parameter.
@@ -1022,6 +1029,52 @@ func (s *RestServer) sessionRecommend(request *restful.Request, response *restfu
 	result = result[:min(len(result), n)]
 	// Send result
 	Ok(response, result)
+}
+
+// getSessionFatigue returns the current session-level fatigue state for a user.
+// This tracks consecutive swipes without match within the current session.
+func (s *RestServer) getSessionFatigue(request *restful.Request, response *restful.Response) {
+	ctx := context.Background()
+	if request != nil && request.Request != nil {
+		ctx = request.Request.Context()
+	}
+	userId := request.PathParameter("user-id")
+	if userId == "" {
+		BadRequest(response, errors.New("user_id is required"))
+		return
+	}
+	if s.RedisClient == nil {
+		Ok(response, map[string]any{"error": "redis not configured"})
+		return
+	}
+	key := fmt.Sprintf("session_fatigue:%s", userId)
+	val, err := s.RedisClient.HGetAll(ctx, key).Result()
+	if err != nil || len(val) == 0 {
+		Ok(response, map[string]int{
+			"swipe_count":     0,
+			"recs_shown":     0,
+			"swipe_threshold": 15,
+			"recs_threshold": 20,
+			"fatigued":        0,
+		})
+		return
+	}
+	var swipeCount, recsShown int
+	fmt.Sscanf(val["swipe_count"], "%d", &swipeCount)
+	fmt.Sscanf(val["recs_shown"], "%d", &recsShown)
+	swipeThreshold := 15
+	recsThreshold := 20
+	fatigued := 0
+	if swipeCount >= swipeThreshold || recsShown >= recsThreshold {
+		fatigued = 1
+	}
+	Ok(response, map[string]int{
+		"swipe_count":     swipeCount,
+		"recs_shown":     recsShown,
+		"swipe_threshold": swipeThreshold,
+		"recs_threshold": recsThreshold,
+		"fatigued":        fatigued,
+	})
 }
 
 // Success is the returned data structure for data insert operations.
@@ -1644,8 +1697,29 @@ func (s *RestServer) updateFatigueStateFromFeedback(ctx context.Context, feedbac
 			pipe.HIncrBy(ctx, key, "swipe_count", int64(uf.swipeCount))
 		}
 		pipe.Expire(ctx, key, 24*time.Hour)
+
+		// Phase 3: Also update session-level fatigue tracking (30-min TTL).
+		// Session fatigue is separate from lifecycle fatigue (24h TTL).
+		// It tracks the current browser/app session, resetting when the user gets a match.
+		sessionKey := fmt.Sprintf("session_fatigue:%s", userId)
+		sessionPipe := s.RedisClient.Pipeline()
+		if uf.hasMatch {
+			sessionPipe.HSet(ctx, sessionKey, "swipe_count", "0")
+			sessionPipe.HSet(ctx, sessionKey, "recs_shown", "0")
+			sessionPipe.HSet(ctx, sessionKey, "match_found", "1")
+		} else if uf.swipeCount > 0 {
+			sessionPipe.HIncrBy(ctx, sessionKey, "swipe_count", int64(uf.swipeCount))
+			sessionPipe.HSet(ctx, sessionKey, "last_update", time.Now().Format(time.RFC3339))
+		}
+		sessionPipe.Expire(ctx, sessionKey, 30*time.Minute)
+
 		if _, err := pipe.Exec(ctx); err != nil {
 			log.Logger().Warn("failed to update fatigue state",
+				zap.String("user_id", userId),
+				zap.Error(err))
+		}
+		if _, err := sessionPipe.Exec(ctx); err != nil {
+			log.Logger().Warn("failed to update session fatigue state",
 				zap.String("user_id", userId),
 				zap.Error(err))
 		}

@@ -163,3 +163,34 @@ min_exposure_count = 5       # 至少 5 次曝光后才计算统计
 stats_cache_ttl = 600        # Redis 缓存 TTL (秒)
 min_like_rate = 0.05         # 最低点赞率，低于此值则过滤
 max_block_rate = 0.1        # 最高屏蔽率，高于此值则过滤
+
+# MMR 多样性控制 (Phase 3)
+# 使用最大边际相关性 (MMR) 算法，在相关性和多样性之间取得平衡
+# Lambda 越大 → 多样性越高，相关性越低
+[recommend.mmr]
+enabled = true
+lambda = 0.3              # 多样性权重 (0-1): 0.3 = 适度多样性
+window_size = 10          # 检查与多少个已选物品的相似度
+age_decay = 0.2          # 年龄相似惩罚 (0-1)
+gender_decay = 0.3        # 性别相同惩罚 (0-1)
+
+# 成功率排序 (Phase 3)
+# 基于物品历史点赞率/匹配率提升排序
+[recommend.success_rate]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+min_exposures = 10         # 至少曝光次数才计算统计
+success_weight = 0.2        # 成功率权重 (0-1)
+match_boost = 1.5          # 高匹配率物品的 boost 倍数
+
+# Session 实时疲劳检测 (Phase 3)
+# 追踪当前会话的连续无匹配划卡，触发即时多样性提升
+[recommend.session_fatigue]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+reset_on_match = true      # 获得 match 后重置计数器
+swipe_threshold = 15       # 连续无 match 划卡阈值
+recs_threshold = 20         # 推荐曝光阈值
+diversity_boost = 0.15    # 疲劳时额外探索比例
