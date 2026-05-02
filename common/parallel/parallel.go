@@ -187,6 +187,83 @@ func ForEach[T any](ctx context.Context, a []T, nWorkers int, worker func(int, T
 	return ctx.Err()
 }
 
+// ForChan processes items from a channel in parallel using a semaphore to limit concurrency.
+// Unlike Detachable, this does not require knowing the total count upfront (streaming-friendly).
+// Completed count is tracked atomically and passed to the progress callback.
+func ForChan[T any](ctx context.Context, items <-chan T, nWorkers int, worker func(T)) {
+	if nWorkers <= 1 {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case item, ok := <-items:
+				if !ok {
+					return
+				}
+				worker(item)
+			}
+		}
+	}
+	sem := make(chan struct{}, nWorkers)
+	var wg sync.WaitGroup
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		case item, ok := <-items:
+			if !ok {
+				wg.Wait()
+				return
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(it T) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					worker(it)
+				}
+			}(item)
+		}
+	}
+}
+
+// ForChanDetachable is like ForChan but supports Detach/Attach via a *Context passed to the worker.
+// This is required by LLM reranker which needs to detach long-running goroutines.
+func ForChanDetachable[T any](ctx context.Context, items <-chan T, nWorkers, nMaxDetached int, worker func(*Context, T)) {
+	sem := make(chan struct{}, nWorkers)
+	detachedSem := make(chan struct{}, nMaxDetached)
+	var wg sync.WaitGroup
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		case item, ok := <-items:
+			if !ok {
+				wg.Wait()
+				return
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(it T) {
+				c := &Context{sem: sem, detachedSem: detachedSem}
+				worker(c, it)
+				if c.detached {
+					<-detachedSem
+				} else {
+					<-sem
+				}
+				wg.Done()
+			}(item)
+		}
+	}
+}
+
 // Split a slice into n slices and keep the order of elements.
 func Split[T any](a []T, n int) [][]T {
 	if len(a) == 0 {

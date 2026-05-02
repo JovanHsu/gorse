@@ -775,10 +775,7 @@ func (s *RestServer) SetLastModified(request *restful.Request, response *restful
 
 // get feedback by item-id with feedback type
 func (s *RestServer) getTypedFeedbackByItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	feedbackType := request.PathParameter("feedback-type")
 	itemId := request.PathParameter("item-id")
 	feedback, err := s.DataClient.GetItemFeedback(ctx, itemId, feedbackType)
@@ -791,10 +788,7 @@ func (s *RestServer) getTypedFeedbackByItem(request *restful.Request, response *
 
 // get feedback by item-id
 func (s *RestServer) getFeedbackByItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	itemId := request.PathParameter("item-id")
 	feedback, err := s.DataClient.GetItemFeedback(ctx, itemId)
 	if err != nil {
@@ -847,10 +841,7 @@ func (s *RestServer) getCollaborativeFiltering(request *restful.Request, respons
 }
 
 func (s *RestServer) getRecommend(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// parse arguments
 	userId := request.PathParameter("user-id")
 	apiVersion := strings.TrimSpace(request.HeaderParameter("X-API-Version"))
@@ -919,16 +910,13 @@ func (s *RestServer) getRecommend(request *restful.Request, response *restful.Re
 }
 
 func (s *RestServer) sessionRecommend(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
 	if len(s.Config.Recommend.ItemToItem) == 0 {
 		PageNotFound(response, errors.New("item-to-item recommendation is not enabled"))
 		return
 	}
 	name := s.Config.Recommend.ItemToItem[0].Name
 
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// parse arguments
 	var feedbacks []Feedback
 	if err := request.ReadEntity(&feedbacks); err != nil {
@@ -1021,10 +1009,7 @@ type Success struct {
 }
 
 func (s *RestServer) insertUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	temp := data.User{}
 	// get userInfo from request and put into temp
 	if err := request.ReadEntity(&temp); err != nil {
@@ -1049,10 +1034,7 @@ func (s *RestServer) insertUser(request *restful.Request, response *restful.Resp
 }
 
 func (s *RestServer) modifyUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// get user id
 	userId := request.PathParameter("user-id")
 	// modify user
@@ -1078,10 +1060,7 @@ func (s *RestServer) modifyUser(request *restful.Request, response *restful.Resp
 }
 
 func (s *RestServer) getUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// get user id
 	userId := request.PathParameter("user-id")
 	// get user
@@ -1098,10 +1077,7 @@ func (s *RestServer) getUser(request *restful.Request, response *restful.Respons
 }
 
 func (s *RestServer) insertUsers(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	var temp []data.User
 	// get param from request and put into temp
 	if err := request.ReadEntity(&temp); err != nil {
@@ -1138,10 +1114,7 @@ type UserIterator struct {
 }
 
 func (s *RestServer) getUsers(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	cursor := request.QueryParameter("cursor")
 	n, err := ParseInt(request, "n", s.Config.Server.DefaultN)
 	if err != nil {
@@ -1159,10 +1132,7 @@ func (s *RestServer) getUsers(request *restful.Request, response *restful.Respon
 
 // delete a user by user-id
 func (s *RestServer) deleteUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// get user-id and put into temp
 	userId := request.PathParameter("user-id")
 	if err := s.DataClient.DeleteUser(ctx, userId); err != nil {
@@ -1174,10 +1144,7 @@ func (s *RestServer) deleteUser(request *restful.Request, response *restful.Resp
 
 // get feedback by user-id with feedback type
 func (s *RestServer) getTypedFeedbackByUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	feedbackType := request.PathParameter("feedback-type")
 	var feednackTypeExpr expression.FeedbackTypeExpression
 	if err := feednackTypeExpr.FromString(feedbackType); err != nil {
@@ -1195,10 +1162,7 @@ func (s *RestServer) getTypedFeedbackByUser(request *restful.Request, response *
 
 // get feedback by user-id
 func (s *RestServer) getFeedbackByUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	userId := request.PathParameter("user-id")
 	feedback, err := s.DataClient.GetUserFeedback(ctx, userId, s.Config.Now())
 	if err != nil {
@@ -1302,10 +1266,7 @@ func (s *RestServer) batchInsertItems(ctx context.Context, response *restful.Res
 }
 
 func (s *RestServer) insertItems(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	var items []Item
 	if err := request.ReadEntity(&items); err != nil {
 		BadRequest(response, err)
@@ -1323,10 +1284,7 @@ func (s *RestServer) insertItems(request *restful.Request, response *restful.Res
 }
 
 func (s *RestServer) insertItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	var item Item
 	var err error
 	if err = request.ReadEntity(&item); err != nil {
@@ -1342,10 +1300,7 @@ func (s *RestServer) insertItem(request *restful.Request, response *restful.Resp
 }
 
 func (s *RestServer) modifyItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	itemId := request.PathParameter("item-id")
 	var patch data.ItemPatch
 	if err := request.ReadEntity(&patch); err != nil {
@@ -1390,10 +1345,7 @@ type ItemIterator struct {
 }
 
 func (s *RestServer) getItems(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	cursor := request.QueryParameter("cursor")
 	n, err := ParseInt(request, "n", s.Config.Server.DefaultN)
 	if err != nil {
@@ -1409,10 +1361,7 @@ func (s *RestServer) getItems(request *restful.Request, response *restful.Respon
 }
 
 func (s *RestServer) getItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Get item id
 	itemId := request.PathParameter("item-id")
 	// Get item
@@ -1429,10 +1378,7 @@ func (s *RestServer) getItem(request *restful.Request, response *restful.Respons
 }
 
 func (s *RestServer) deleteItem(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	itemId := request.PathParameter("item-id")
 	// delete item from database
 	if err := s.DataClient.DeleteItem(ctx, itemId); err != nil {
@@ -1448,10 +1394,7 @@ func (s *RestServer) deleteItem(request *restful.Request, response *restful.Resp
 }
 
 func (s *RestServer) insertItemCategory(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// fetch item id and category
 	itemId := request.PathParameter("item-id")
 	category := request.PathParameter("category")
@@ -1478,10 +1421,7 @@ func (s *RestServer) insertItemCategory(request *restful.Request, response *rest
 }
 
 func (s *RestServer) deleteItemCategory(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// fetch item id and category
 	itemId := request.PathParameter("item-id")
 	category := request.PathParameter("category")
@@ -1536,10 +1476,7 @@ func (f Feedback) ToDataFeedback() (data.Feedback, error) {
 
 func (s *RestServer) insertFeedback(overwrite bool) func(request *restful.Request, response *restful.Response) {
 	return func(request *restful.Request, response *restful.Response) {
-		ctx := context.Background()
-		if request != nil && request.Request != nil {
-			ctx = request.Request.Context()
-		}
+	ctx := request.Request.Context()
 		// add ratings
 		var feedbackLiterTime []Feedback
 		if err := request.ReadEntity(&feedbackLiterTime); err != nil {
@@ -1591,10 +1528,7 @@ type FeedbackIterator struct {
 }
 
 func (s *RestServer) getFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	cursor := request.QueryParameter("cursor")
 	n, err := ParseInt(request, "n", s.Config.Server.DefaultN)
@@ -1611,10 +1545,7 @@ func (s *RestServer) getFeedback(request *restful.Request, response *restful.Res
 }
 
 func (s *RestServer) getTypedFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	feedbackType := request.PathParameter("feedback-type")
 	cursor := request.QueryParameter("cursor")
@@ -1632,10 +1563,7 @@ func (s *RestServer) getTypedFeedback(request *restful.Request, response *restfu
 }
 
 func (s *RestServer) getUserItemFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	userId := request.PathParameter("user-id")
 	itemId := request.PathParameter("item-id")
@@ -1647,10 +1575,7 @@ func (s *RestServer) getUserItemFeedback(request *restful.Request, response *res
 }
 
 func (s *RestServer) deleteUserItemFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	userId := request.PathParameter("user-id")
 	itemId := request.PathParameter("item-id")
@@ -1662,10 +1587,7 @@ func (s *RestServer) deleteUserItemFeedback(request *restful.Request, response *
 }
 
 func (s *RestServer) getTypedUserItemFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	feedbackType := request.PathParameter("feedback-type")
 	userId := request.PathParameter("user-id")
@@ -1680,10 +1602,7 @@ func (s *RestServer) getTypedUserItemFeedback(request *restful.Request, response
 }
 
 func (s *RestServer) deleteTypedUserItemFeedback(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// Parse parameters
 	feedbackType := request.PathParameter("feedback-type")
 	userId := request.PathParameter("user-id")

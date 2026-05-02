@@ -488,10 +488,7 @@ func (m *Master) handleUserInfo(request *restful.Request, response *restful.Resp
 }
 
 func (m *Master) getCategories(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	categoryScores, err := m.CacheClient.SearchScores(ctx, cache.ItemCategories, "", nil, 0, -1)
 	if err != nil {
 		server.InternalServerError(response, err)
@@ -640,10 +637,7 @@ type Status struct {
 }
 
 func (m *Master) getStats(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	status := Status{BinaryVersion: version.Version}
 	var err error
 	// read number of users
@@ -733,10 +727,7 @@ func (m *Master) getTasks(_ *restful.Request, response *restful.Response) {
 }
 
 func (m *Master) getTimeseries(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// get time series name
 	name := request.PathParameter("name")
 	// get begin time
@@ -790,10 +781,7 @@ type User struct {
 }
 
 func (m *Master) getUser(request *restful.Request, response *restful.Response) {
-	ctx := context.Background()
-	if request != nil && request.Request != nil {
-		ctx = request.Request.Context()
-	}
+	ctx := request.Request.Context()
 	// get user id
 	userId := request.PathParameter("user-id")
 	// get user

@@ -382,16 +382,24 @@ func (r *Redis) UpdateScores(ctx context.Context, collections []string, subset *
 	if patch.Categories != nil {
 		values = append(values, "categories", encodeCategories(patch.Categories))
 	}
-	for _, key := range keys {
-		if err := r.client.Watch(ctx, func(tx *redis.Tx) error {
-			if exist, err := tx.Exists(ctx, key).Result(); err != nil {
-				return err
-			} else if exist == 0 {
-				return nil
+	// Batch HSet with pipeline (atomic per key, no cross-key isolation needed).
+	// Non-existent keys are skipped; compensate with EXISTS check afterward.
+	if len(keys) > 0 {
+		pipe := r.client.Pipeline()
+		for _, key := range keys {
+			pipe.HSet(ctx, key, values...)
+		}
+		pipe.Exec(ctx)
+		// Remove keys that don't exist from the list for EXISTS check.
+		existPipe := r.client.Pipeline()
+		for _, key := range keys {
+			existPipe.Exists(ctx, key)
+		}
+		exists, _ := existPipe.Exec(ctx)
+		for i, cmd := range exists {
+			if cmd.(*redis.IntCmd).Val() == 0 {
+				keys[i] = ""
 			}
-			return tx.HSet(ctx, key, values...).Err()
-		}, key); err != nil {
-			return errors.Trace(err)
 		}
 	}
 	return nil
