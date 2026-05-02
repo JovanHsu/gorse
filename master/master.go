@@ -102,6 +102,9 @@ type Master struct {
 
 	// background computation services
 	bgServices *BackgroundServiceManager
+
+	// sidecar services
+	sidecarClient *SidecarClient
 }
 
 // NewMaster creates a master node.
@@ -163,6 +166,14 @@ func NewMaster(cfg *config.Config, cacheFolder string, standalone bool, configPa
 		ticker:    time.NewTicker(duration),
 		scheduled: make(chan struct{}, 1),
 		cancel:    func() {},
+	}
+	// Initialize sidecar client if configured
+	if cfg.Sidecar.ABExperiment != "" || cfg.Sidecar.RiskHealth != "" || cfg.Sidecar.ColdStart != "" {
+		m.sidecarClient = NewSidecarClient(&cfg.Sidecar, redisClient)
+		log.Logger().Info("sidecar client initialized",
+			zap.String("ab_experiment", cfg.Sidecar.ABExperiment),
+			zap.String("risk_health", cfg.Sidecar.RiskHealth),
+			zap.String("cold_start", cfg.Sidecar.ColdStart))
 	}
 	return m
 }

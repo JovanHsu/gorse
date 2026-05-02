@@ -248,6 +248,58 @@ func (m *Master) CreateWebService() {
 		Param(ws.QueryParameter("user-id", "identifier of the user").DataType("string")).
 		Returns(http.StatusOK, "OK", RerankerPrompt{}).
 		Writes(RerankerPrompt{}))
+
+	// A/B experiment endpoints
+	ws.Route(ws.GET("/dashboard/experiments").To(m.getDashboardExperiments).
+		Doc("List all tracked A/B experiments.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Returns(http.StatusOK, "OK", []string{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+	ws.Route(ws.GET("/dashboard/experiments/{name}").To(m.getDashboardExperiment).
+		Doc("Get A/B experiment report.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Param(ws.PathParameter("name", "experiment name").DataType("string")).
+		Returns(http.StatusOK, "OK", ABReport{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+	ws.Route(ws.POST("/dashboard/experiments/{name}/record").To(m.postDashboardExperimentRecord).
+		Doc("Record a metric for an A/B experiment.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Param(ws.PathParameter("name", "experiment name").DataType("string")).
+		Returns(http.StatusOK, "OK", map[string]string{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+
+	// Risk health endpoints
+	ws.Route(ws.GET("/dashboard/risk-health/fatigue_rate").To(m.getDashboardFatigueRate).
+		Doc("Get fatigue rate.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Returns(http.StatusOK, "OK", FatigueRateResponse{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+	ws.Route(ws.GET("/dashboard/risk-health/pool_coverage").To(m.getDashboardPoolCoverage).
+		Doc("Get pool coverage.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Returns(http.StatusOK, "OK", PoolCoverageResponse{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+	ws.Route(ws.GET("/dashboard/risk-health/sd_balance").To(m.getDashboardSDBalance).
+		Doc("Get supply/demand balance.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Returns(http.StatusOK, "OK", SDBalanceResponse{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+
+	// Cold start endpoints
+	ws.Route(ws.GET("/dashboard/cold_start/{user_id}").To(m.getDashboardColdStart).
+		Doc("Get cold start pool for user.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Param(ws.PathParameter("user_id", "user identifier").DataType("string")).
+		Param(ws.QueryParameter("n", "number of items").DataType("int")).
+		Returns(http.StatusOK, "OK", ColdStartPoolResponse{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
+	ws.Route(ws.GET("/dashboard/first_screen/{user_id}").To(m.getDashboardFirstScreen).
+		Doc("Get first screen candidates for user.").
+		Metadata(restfulspec.KeyOpenAPITags, []string{"dashboard"}).
+		Param(ws.PathParameter("user_id", "user identifier").DataType("string")).
+		Param(ws.QueryParameter("n", "number of items").DataType("int")).
+		Returns(http.StatusOK, "OK", FirstScreenResponse{}).
+		Returns(http.StatusServiceUnavailable, "Sidecar unavailable", nil))
 }
 
 // SinglePageAppFileSystem is the file system for single page app.
@@ -2071,4 +2123,132 @@ func (m *Master) chat(response http.ResponseWriter, request *http.Request) {
 			f.Flush()
 		}
 	}
+}
+
+// ---- Sidecar Dashboard Handlers ----
+
+func (m *Master) getDashboardExperiments(_ *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.ABExperiment == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("ab-experiment sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	experiments, err := m.sidecarClient.GetExperiments(ctx)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, experiments)
+}
+
+func (m *Master) getDashboardExperiment(request *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.ABExperiment == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("ab-experiment sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	name := request.PathParameter("name")
+	report, err := m.sidecarClient.GetABReport(ctx, name)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, report)
+}
+
+func (m *Master) postDashboardExperimentRecord(request *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.ABExperiment == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("ab-experiment sidecar not configured"))
+		return
+	}
+	var rec struct {
+		UserID string  `json:"user_id"`
+		Metric string  `json:"metric"`
+		Value  float64 `json:"value"`
+	}
+	if err := request.ReadEntity(&rec); err != nil {
+		server.BadRequest(response, err)
+		return
+	}
+	ctx := context.Background()
+	name := request.PathParameter("name")
+	if err := m.sidecarClient.RecordABMetric(ctx, name, rec.UserID, rec.Metric, rec.Value); err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, map[string]string{"status": "recorded"})
+}
+
+func (m *Master) getDashboardFatigueRate(_ *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.RiskHealth == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("risk-health sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	r, err := m.sidecarClient.GetFatigueRate(ctx)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, r)
+}
+
+func (m *Master) getDashboardPoolCoverage(_ *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.RiskHealth == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("risk-health sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	r, err := m.sidecarClient.GetPoolCoverage(ctx)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, r)
+}
+
+func (m *Master) getDashboardSDBalance(_ *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.RiskHealth == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("risk-health sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	r, err := m.sidecarClient.GetSDBalance(ctx)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, r)
+}
+
+func (m *Master) getDashboardColdStart(request *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.ColdStart == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("cold-start sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	userID := request.PathParameter("user_id")
+	n, _ := server.ParseInt(request, "n", 20)
+	r, err := m.sidecarClient.GetColdStartPool(ctx, userID, n)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, r)
+}
+
+func (m *Master) getDashboardFirstScreen(request *restful.Request, response *restful.Response) {
+	if m.sidecarClient == nil || m.sidecarClient.ColdStart == "" {
+		server.Error(response, http.StatusServiceUnavailable, errors.New("cold-start sidecar not configured"))
+		return
+	}
+	ctx := context.Background()
+	userID := request.PathParameter("user_id")
+	n, _ := server.ParseInt(request, "n", 20)
+	r, err := m.sidecarClient.GetFirstScreen(ctx, userID, n)
+	if err != nil {
+		server.Error(response, http.StatusServiceUnavailable, err)
+		return
+	}
+	server.Ok(response, r)
 }

@@ -67,6 +67,7 @@ type Config struct {
 	OIDC      OIDCConfig      `mapstructure:"oidc"`
 	OpenAI    OpenAIConfig    `mapstructure:"openai"`
 	Blob      BlobConfig      `mapstructure:"blob"`
+	Sidecar   SidecarConfig   `mapstructure:"sidecar"`
 }
 
 // DatabaseConfig is the configuration for the database.
@@ -596,6 +597,13 @@ type AzureBlobConfig struct {
 	AccountName      string `mapstructure:"account_name"`
 	AccountKey       string `mapstructure:"account_key"`
 	ConnectionString string `mapstructure:"connection_string"`
+}
+
+// SidecarConfig holds HTTP endpoints for sidecar services.
+type SidecarConfig struct {
+	ABExperiment string `mapstructure:"ab_experiment"` // e.g. "http://localhost:8092"
+	RiskHealth  string `mapstructure:"risk_health"`  // e.g. "http://localhost:8093"
+	ColdStart   string `mapstructure:"cold_start"`   // e.g. "http://localhost:8091"
 }
 
 func GetDefaultConfig() *Config {
