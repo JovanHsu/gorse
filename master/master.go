@@ -208,10 +208,13 @@ func (m *Master) Serve() {
 		log.Logger().Fatal("failed to init database", zap.Error(err))
 	}
 
+	// Create CVR reporter.
+	cvrReporter := NewCVRReporter(m.CacheClient, m.DataClient, 15*time.Minute)
+
 	// Create and start background computation services.
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.bgServices = NewBackgroundServiceManager(m.Config.Recommend, m.RedisClient, m.DataClient)
+	m.bgServices = NewBackgroundServiceManager(m.Config.Recommend, m.RedisClient, m.DataClient, cvrReporter)
 	m.bgServices.Start(ctx)
 
 	// load recommend config
