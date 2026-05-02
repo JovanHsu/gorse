@@ -15,10 +15,16 @@
 package logics
 
 import (
+	"fmt"
 	"math"
 	"testing"
+	"time"
 
+	"github.com/gorse-io/gorse/config"
+	"github.com/gorse-io/gorse/storage/cache"
+	"github.com/gorse-io/gorse/storage/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 )
 
 func TestHaversineKm(t *testing.T) {
@@ -145,4 +151,265 @@ func TestHaversineKm_NonNegativity(t *testing.T) {
 		assert.False(t, math.IsNaN(d), "distance should not be NaN")
 		assert.False(t, math.IsInf(d, 0), "distance should not be infinite")
 	}
+}
+
+// distanceIntegrationTest wraps SQLite-based profile_match tests.
+type distanceIntegrationTest struct {
+	suite.Suite
+	dataClient  data.Database
+	cacheClient cache.Database
+}
+
+func TestProfileMatch_DistanceFiltering(t *testing.T) {
+	suite.Run(t, new(distanceIntegrationTest))
+}
+
+func (s *distanceIntegrationTest) SetupSuite() {
+	var err error
+	s.dataClient, err = data.Open(fmt.Sprintf("sqlite://%s/data.db", s.T().TempDir()), "")
+	s.NoError(err)
+	s.cacheClient, err = cache.Open(fmt.Sprintf("sqlite://%s/cache.db", s.T().TempDir()), "")
+	s.NoError(err)
+	s.NoError(s.dataClient.Init())
+	s.NoError(s.cacheClient.Init())
+}
+
+func (s *distanceIntegrationTest) TearDownSuite() {
+	s.NoError(s.dataClient.Close())
+	s.NoError(s.cacheClient.Close())
+}
+
+func (s *distanceIntegrationTest) insertUserWithLabels(userId string, labels map[string]any) {
+	s.NoError(s.dataClient.BatchInsertUsers(s.T().Context(), []data.User{{
+		UserId: userId,
+		Labels: labels,
+	}}))
+}
+
+func (s *distanceIntegrationTest) insertItemWithLabels(itemId, category string, labels map[string]any) {
+	s.NoError(s.dataClient.BatchInsertItems(s.T().Context(), []data.Item{{
+		ItemId:     itemId,
+		Categories: []string{category},
+		Labels:     labels,
+		Timestamp:  time.Now(),
+	}}))
+}
+
+// TestDistanceFiltering_NearUsers returns users within distance.
+func (s *distanceIntegrationTest) TestDistanceFiltering_NearUsers() {
+	// User in Beijing (39.9, 116.4) wants partners within 20km.
+	s.insertUserWithLabels("alice", map[string]any{
+		"gender": "F",
+		"latitude": 39.9042,
+		"longitude": 116.4074,
+		"pref_age_min":       20,
+		"pref_age_max":       40,
+		"pref_max_distance_km": 20,
+	})
+
+	// Candidates:
+	//  - near_beijing: (39.92, 116.45) — ~5km away — within 20km ✅
+	//  - mid_distance: (40.10, 116.80) — ~36km away — outside 20km ❌
+	//  - far_away:    (31.23, 121.47) — ~1068km away — outside 20km ❌
+
+	nearLat, nearLon := 39.92, 116.45     // ~5km from Beijing
+	midLat, midLon := 40.10, 116.80       // ~36km from Beijing
+	farLat, farLon := 31.23, 121.47       // ~1068km from Beijing
+
+	s.insertItemWithLabels("near_beijing", "M", map[string]any{
+		"gender": "M", "age": 28,
+		"latitude": nearLat, "longitude": nearLon,
+	})
+	s.insertItemWithLabels("mid_distance", "M", map[string]any{
+		"gender": "M", "age": 30,
+		"latitude": midLat, "longitude": midLon,
+	})
+	s.insertItemWithLabels("far_away", "M", map[string]any{
+		"gender": "M", "age": 25,
+		"latitude": farLat, "longitude": farLon,
+	})
+
+	cfg := config.RecommendConfig{
+		ProfileMatch: config.ProfileMatchConfig{
+			MinAge: 18, MaxAge: 65,
+		},
+	}
+	rec, err := NewRecommender(cfg, s.cacheClient, s.dataClient, true, "alice", nil)
+	s.NoError(err)
+	rec.config = cfg
+
+	scores, digest, err := rec.recommendProfileMatch(s.T().Context())
+	s.NoError(err)
+	s.Equal("profile_match", digest)
+
+	// near_beijing should be in results; mid and far should be filtered out.
+	resultIds := make([]string, len(scores))
+	for i, sc := range scores {
+		resultIds[i] = sc.Id
+	}
+
+	s.Contains(resultIds, "near_beijing", "near_beijing should be within 20km")
+	s.NotContains(resultIds, "mid_distance", "mid_distance (~36km) should be filtered out")
+	s.NotContains(resultIds, "far_away", "far_away (~1068km) should be filtered out")
+}
+
+// TestDistanceFiltering_NoDistancePreference returns all candidates.
+func (s *distanceIntegrationTest) TestDistanceFiltering_NoDistancePreference() {
+	// User has no distance preference (pref_max_distance_km = 0).
+	s.insertUserWithLabels("bob", map[string]any{
+		"gender": "M",
+		"latitude": 31.23,
+		"longitude": 121.47,
+		"pref_age_min": 20,
+		"pref_age_max": 40,
+		// No pref_max_distance_km set
+	})
+
+	s.insertItemWithLabels("shanghai_user", "F", map[string]any{
+		"gender": "F", "age": 25,
+		"latitude": 31.23, "longitude": 121.47, // Shanghai
+	})
+	s.insertItemWithLabels("beijing_user", "F", map[string]any{
+		"gender": "F", "age": 28,
+		"latitude": 39.90, "longitude": 116.41, // Beijing ~1068km
+	})
+
+	cfg := config.RecommendConfig{
+		ProfileMatch: config.ProfileMatchConfig{
+			MinAge: 18, MaxAge: 65,
+		},
+	}
+	rec, err := NewRecommender(cfg, s.cacheClient, s.dataClient, true, "bob", nil)
+	s.NoError(err)
+	rec.config = cfg
+
+	scores, _, err := rec.recommendProfileMatch(s.T().Context())
+	s.NoError(err)
+
+	resultIds := make([]string, len(scores))
+	for i, sc := range scores {
+		resultIds[i] = sc.Id
+	}
+
+	// Both should appear when no distance filter is set.
+	s.Contains(resultIds, "shanghai_user")
+	s.Contains(resultIds, "beijing_user")
+}
+
+// TestDistanceFiltering_UserHasNoLocation skips distance filter.
+func (s *distanceIntegrationTest) TestDistanceFiltering_UserHasNoLocation() {
+	// User has no lat/lon set — distance filter should be skipped.
+	s.insertUserWithLabels("charlie", map[string]any{
+		"gender": "F",
+		// No latitude/longitude
+		"pref_age_min": 20,
+		"pref_age_max": 40,
+		"pref_max_distance_km": 50, // set but user has no location
+	})
+
+	s.insertItemWithLabels("nearby_no_loc", "M", map[string]any{
+		"gender": "M", "age": 28,
+		"latitude": 39.9, "longitude": 116.4,
+	})
+
+	cfg := config.RecommendConfig{
+		ProfileMatch: config.ProfileMatchConfig{
+			MinAge: 18, MaxAge: 65,
+		},
+	}
+	rec, err := NewRecommender(cfg, s.cacheClient, s.dataClient, true, "charlie", nil)
+	s.NoError(err)
+	rec.config = cfg
+
+	_, _, err = rec.recommendProfileMatch(s.T().Context())
+	s.NoError(err)
+
+	// Should not panic; the distance filter is skipped since user has no location.
+}
+
+// TestDistanceFiltering_CandidateHasNoLocation passes through.
+func (s *distanceIntegrationTest) TestDistanceFiltering_CandidateHasNoLocation() {
+	// User has location; candidate does not — candidate should NOT be filtered out.
+	s.insertUserWithLabels("diana", map[string]any{
+		"gender": "F",
+		"latitude": 31.23,
+		"longitude": 121.47,
+		"pref_age_min": 20,
+		"pref_age_max": 40,
+		"pref_max_distance_km": 5, // very small, would filter everyone
+	})
+
+	// Candidate with no location data.
+	s.insertItemWithLabels("no_location_cand", "M", map[string]any{
+		"gender": "M", "age": 28,
+		// No latitude/longitude — should NOT be filtered out.
+	})
+
+	cfg := config.RecommendConfig{
+		ProfileMatch: config.ProfileMatchConfig{
+			MinAge: 18, MaxAge: 65,
+		},
+	}
+	rec, err := NewRecommender(cfg, s.cacheClient, s.dataClient, true, "diana", nil)
+	s.NoError(err)
+	rec.config = cfg
+
+	scores, _, err := rec.recommendProfileMatch(s.T().Context())
+	s.NoError(err)
+
+	resultIds := make([]string, len(scores))
+	for i, sc := range scores {
+		resultIds[i] = sc.Id
+	}
+
+	// Candidate without location should NOT be filtered out.
+	s.Contains(resultIds, "no_location_cand",
+		"candidate without location should pass through distance filter")
+}
+
+// TestDistanceFiltering_ExactBoundaryAtMaxDistance includes at-boundary.
+func (s *distanceIntegrationTest) TestDistanceFiltering_ExactBoundaryAtMaxDistance() {
+	// Beijing (39.9, 116.4) + 50km max.
+	// Tianjin (39.14, 117.20) ≈ 95km — filtered out.
+	// Langfang (39.52, 116.68) ≈ 28km — included.
+	s.insertUserWithLabels("eve", map[string]any{
+		"gender": "F",
+		"latitude": 39.9042,
+		"longitude": 116.4074,
+		"pref_age_min": 20,
+		"pref_age_max": 40,
+		"pref_max_distance_km": 50,
+	})
+
+	langfangLat, langfangLon := 39.52, 116.68   // ~28km from Beijing
+	tianjinLat, tianjinLon := 39.14, 117.20      // ~95km from Beijing
+
+	s.insertItemWithLabels("langfang_user", "M", map[string]any{
+		"gender": "M", "age": 30,
+		"latitude": langfangLat, "longitude": langfangLon,
+	})
+	s.insertItemWithLabels("tianjin_user", "M", map[string]any{
+		"gender": "M", "age": 28,
+		"latitude": tianjinLat, "longitude": tianjinLon,
+	})
+
+	cfg := config.RecommendConfig{
+		ProfileMatch: config.ProfileMatchConfig{
+			MinAge: 18, MaxAge: 65,
+		},
+	}
+	rec, err := NewRecommender(cfg, s.cacheClient, s.dataClient, true, "eve", nil)
+	s.NoError(err)
+	rec.config = cfg
+
+	scores, _, err := rec.recommendProfileMatch(s.T().Context())
+	s.NoError(err)
+
+	resultIds := make([]string, len(scores))
+	for i, sc := range scores {
+		resultIds[i] = sc.Id
+	}
+
+	s.Contains(resultIds, "langfang_user", "langfang (~28km) should be within 50km")
+	s.NotContains(resultIds, "tianjin_user", "tianjin (~95km) should be outside 50km")
 }
