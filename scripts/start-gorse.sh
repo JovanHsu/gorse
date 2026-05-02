@@ -48,19 +48,25 @@ DATA_STORE_URI="$DATA_STORE"
 log "Data Store: $DATA_STORE_URI"
 
 # 获取 Redis 配置
-# 优先从 recommend.supply_demand 获取（config-cadoo.toml 风格）
+# 优先从 [database].redis_store 获取（标准化位置）
+REDIS_STORE=$(toml_get "redis_store" "$CONFIG_FILE")
 REDIS_FROM_SUPPLY=$(toml_get "recommend.supply_demand.redis_addr" "$CONFIG_FILE")
 REDIS_PASSWORD_SUPPLY=$(toml_get "recommend.supply_demand.redis_password" "$CONFIG_FILE")
 
-if [[ -n "$REDIS_FROM_SUPPLY" ]]; then
+if [[ -n "$REDIS_STORE" && "$REDIS_STORE" =~ redis://.* ]]; then
+    REDIS_HOST=$(echo "$REDIS_STORE" | sed -n 's|.*://[^@]*@\([^:]*\):.*|\1|p')
+    REDIS_PORT=$(echo "$REDIS_STORE" | sed -n 's|.*://[^@]*@[^:]*:\([0-9]*\)/.*|\1|p')
+    REDIS_PASSWORD=$(echo "$REDIS_STORE" | sed -n 's|.*://\([^@]*\)@.*|\1|p' | sed 's|^:||')
+    log "Redis (from database.redis_store): $REDIS_HOST:$REDIS_PORT"
+elif [[ -n "$REDIS_FROM_SUPPLY" ]]; then
     REDIS_HOST="${REDIS_FROM_SUPPLY%%:*}"
     REDIS_PORT="${REDIS_FROM_SUPPLY##*:}"
     REDIS_PASSWORD="$REDIS_PASSWORD_SUPPLY"
     log "Redis (from supply_demand): $REDIS_HOST:$REDIS_PORT"
 elif [[ "$DATA_STORE" =~ redis://.* ]]; then
-    REDIS_HOST=$(echo "$DATA_STORE" | sed -n 's|.*@\([^:/]*\).*|\1|p')
-    REDIS_PORT=$(echo "$DATA_STORE" | sed -n 's|.*:\([0-9]*\)/.*|\1|p')
-    REDIS_PASSWORD=$(echo "$DATA_STORE" | sed -n 's|redis://\([^:@]*\):\([^@]*\)@.*|\2|p')
+    REDIS_HOST=$(echo "$DATA_STORE" | sed -n 's|.*://[^@]*@\([^:]*\):.*|\1|p')
+    REDIS_PORT=$(echo "$DATA_STORE" | sed -n 's|.*://[^@]*@[^:]*:\([0-9]*\)/.*|\1|p')
+    REDIS_PASSWORD=$(echo "$DATA_STORE" | sed -n 's|.*://\([^@]*\)@.*|\1|p' | sed 's|^:||')
     log "Redis (from data_store): $REDIS_HOST:$REDIS_PORT"
 else
     REDIS_HOST="localhost"
@@ -117,10 +123,7 @@ compile "cold-start-sidecar" "cmd/cold-start-sidecar" "$COLD_BIN"
 # 启动 ab-experiment (8092)
 # ============================================================
 log "启动 ab-experiment (8092)..."
-export REDIS_ADDR="$REDIS_HOST:$REDIS_PORT"
-export REDIS_PASSWORD="$REDIS_PASSWORD"
-export HTTP_PORT=":8092"
-"$AB_BIN" >> "$LOG_DIR/ab-experiment.log" 2>&1 &
+"$AB_BIN" --config "$CONFIG_FILE" --port 8092 >> "$LOG_DIR/ab-experiment.log" 2>&1 &
 AB_PID=$!
 echo $AB_PID > "$PID_DIR/ab-experiment.pid"
 log "ab-experiment PID: $AB_PID"
@@ -129,11 +132,7 @@ log "ab-experiment PID: $AB_PID"
 # 启动 risk-health (8093)
 # ============================================================
 log "启动 risk-health (8093)..."
-export REDIS_ADDR="$REDIS_HOST:$REDIS_PORT"
-export REDIS_PASSWORD="$REDIS_PASSWORD"
-export POSTGRES_URI="$DATA_STORE_URI"
-export HTTP_PORT=":8093"
-"$RISK_BIN" >> "$LOG_DIR/risk-health.log" 2>&1 &
+"$RISK_BIN" --config "$CONFIG_FILE" --port 8093 >> "$LOG_DIR/risk-health.log" 2>&1 &
 RISK_PID=$!
 echo $RISK_PID > "$PID_DIR/risk-health.pid"
 log "risk-health PID: $RISK_PID"
@@ -142,11 +141,7 @@ log "risk-health PID: $RISK_PID"
 # 启动 cold-start-sidecar (8091)
 # ============================================================
 log "启动 cold-start-sidecar (8091)..."
-export REDIS_ADDR="$REDIS_HOST:$REDIS_PORT"
-export REDIS_PASSWORD="$REDIS_PASSWORD"
-export DATA_STORE_URI="$DATA_STORE_URI"
-export HTTP_PORT=":8091"
-"$COLD_BIN" >> "$LOG_DIR/cold-start.log" 2>&1 &
+"$COLD_BIN" --config "$CONFIG_FILE" --port 8091 >> "$LOG_DIR/cold-start.log" 2>&1 &
 COLD_PID=$!
 echo $COLD_PID > "$PID_DIR/cold-start.pid"
 log "cold-start-sidecar PID: $COLD_PID"

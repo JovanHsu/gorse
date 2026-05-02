@@ -15,7 +15,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	srv := NewServer(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword)
+	srv := NewServer(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB)
 	defer srv.Close()
 
 	http.HandleFunc("/health", srv.health)

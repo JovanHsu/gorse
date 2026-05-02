@@ -4,17 +4,18 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+
+	"github.com/gorse-io/gorse/config"
 )
 
 func main() {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	redisPassword := os.Getenv("REDIS_PASSWORD")
-	postgresURI := os.Getenv("POSTGRES_URI")
-	if redisAddr == "" || redisPassword == "" || postgresURI == "" {
-		log.Fatal("REDIS_ADDR, REDIS_PASSWORD, and POSTGRES_URI must be set")
+	cfg, err := config.LoadSidecarConfig()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	store, err := NewStore(redisAddr, redisPassword, postgresURI)
+	store, err := NewStore(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.DataStore, cfg.RedisDB)
 	if err != nil {
 		log.Fatalf("failed to create store: %v", err)
 	}
@@ -31,7 +32,13 @@ func main() {
 
 	port := os.Getenv("HTTP_PORT")
 	if port == "" {
-		port = ":8093"
+		if cfg.HTTPPort > 0 {
+			port = ":" + strconv.Itoa(cfg.HTTPPort)
+		} else {
+			port = ":8093"
+		}
+	} else {
+		port = ":" + port
 	}
 	log.Printf("risk-health-sidecar listening on %s", port)
 	log.Fatal(http.ListenAndServe(port, nil))

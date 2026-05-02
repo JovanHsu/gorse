@@ -16,11 +16,12 @@ type Store struct {
 	postgres *sql.DB
 }
 
-func NewStore(redisAddr, redisPassword, postgresURI string) (*Store, error) {
+func NewStore(redisAddr, redisUsername, redisPassword, postgresURI string, redisDB int) (*Store, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
+		Username: redisUsername,
 		Password: redisPassword,
-		DB:       0,
+		DB:       redisDB,
 	})
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		return nil, fmt.Errorf("redis ping: %w", err)

@@ -15,11 +15,12 @@ type Store struct {
 	tablePrefix  string
 }
 
-func NewStore(redisAddr, redisPassword, dataStoreURI, tablePrefix string) (*Store, error) {
+func NewStore(redisAddr, redisUsername, redisPassword, dataStoreURI, tablePrefix string, redisDB int) (*Store, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
+		Username: redisUsername,
 		Password: redisPassword,
-		DB:       0,
+		DB:       redisDB,
 	})
 	return &Store{
 		redis:        rdb,

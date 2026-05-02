@@ -12,12 +12,12 @@ type Server struct {
 	rdb *redis.Client
 }
 
-func NewServer(addr, username, password string) *Server {
+func NewServer(addr, username, password string, db int) *Server {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Username: username,
 		Password: password,
-		DB:       0,
+		DB:       db,
 	})
 	return &Server{rdb: rdb}
 }

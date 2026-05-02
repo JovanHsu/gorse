@@ -1,8 +1,7 @@
 [database]
 cache_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
 data_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
-# "tt-bp1cqijyjau70dpp8pd.tairskv.rds.aliyuncs.com:6379" default:W$=ncmArt!rUe8l@UGwCuzgBV83+# database: 1
-# redis_store = ""  # not a valid config key, commented out to avoid TOML parse error
+redis_store = "redis://default:W$=ncmArt!rUe8l@UGwCuzgBV83+#@tt-bp1cqijyjau70dpp8pd.tairskv.rds.aliyuncs.com:6379/1"
 
 [master]
 port = 8086
@@ -229,8 +228,16 @@ require_verified = false       # 是否只推荐已认证用户
 active_within_days = 7         # 只推荐 N 天内有活跃的用户
 score_by = "quality_recency"   # 评分策略: quality / quality_recency / engagement
 
-# Sidecar 服务配置 (Dashboard 运营指标)
+# Sidecar 服务 HTTP 代理地址（gorse-in-one 读取，用于 /api/dashboard/* 路由）
 [sidecar]
 ab_experiment = "http://localhost:8092"
 risk_health   = "http://localhost:8093"
 cold_start    = "http://localhost:8091"
+
+# Sidecar 服务连接配置（各 sidecar 进程读取）
+# 运行时通过 --config 或 GORSE_CONFIG 指定配置文件路径
+[sidecar_service]
+redis_addr     = "tt-bp1cqijyjau70dpp8pd.tairskv.rds.aliyuncs.com:6379"
+redis_password = "default:W$=ncmArt!rUe8l@UGwCuzgBV83+#"
+redis_db       = 0
+data_store     = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"

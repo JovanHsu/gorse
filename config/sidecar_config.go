@@ -18,13 +18,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
 type SidecarServiceConfig struct {
 	RedisAddr     string
+	RedisUsername string
 	RedisPassword string
+	RedisDB      int
 	DataStore     string
 	HTTPHost      string
 	HTTPPort      int
@@ -48,25 +51,37 @@ func LoadSidecarConfig() (*SidecarServiceConfig, error) {
 	v.SetConfigType("toml")
 
 	// Bind env vars as fallback
-	v.BindEnv("sidecar.redis_addr", "REDIS_ADDR")
-	v.BindEnv("sidecar.redis_password", "REDIS_PASSWORD")
-	v.BindEnv("sidecar.data_store", "DATA_STORE_URI")
-	v.BindEnv("sidecar.http_port", "HTTP_PORT")
+	v.BindEnv("sidecar_service.redis_addr", "REDIS_ADDR")
+	v.BindEnv("sidecar_service.redis_password", "REDIS_PASSWORD")
+	v.BindEnv("sidecar_service.redis_db", "REDIS_DB")
+	v.BindEnv("sidecar_service.data_store", "DATA_STORE_URI")
+	v.BindEnv("sidecar_service.http_port", "HTTP_PORT")
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config %s: %w", path, err)
 	}
 
-	viperPort := v.GetInt("sidecar.http_port")
+	viperPort := v.GetInt("sidecar_service.http_port")
 	if *httpPort > 0 {
 		viperPort = *httpPort
 	}
 
+	rawPassword := v.GetString("sidecar_service.redis_password")
+	var redisUser, redisPass string
+	if idx := strings.Index(rawPassword, ":"); idx >= 0 {
+		redisUser = rawPassword[:idx]
+		redisPass = rawPassword[idx+1:]
+	} else {
+		redisPass = rawPassword
+	}
+
 	cfg := &SidecarServiceConfig{
-		RedisAddr:     v.GetString("sidecar.redis_addr"),
-		RedisPassword: v.GetString("sidecar.redis_password"),
-		DataStore:     v.GetString("sidecar.data_store"),
-		HTTPHost:      v.GetString("sidecar.http_host"),
+		RedisAddr:     v.GetString("sidecar_service.redis_addr"),
+		RedisUsername: redisUser,
+		RedisPassword: redisPass,
+		RedisDB:       v.GetInt("sidecar_service.redis_db"),
+		DataStore:     v.GetString("sidecar_service.data_store"),
+		HTTPHost:      v.GetString("sidecar_service.http_host"),
 		HTTPPort:      viperPort,
 	}
 

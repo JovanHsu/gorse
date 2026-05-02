@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -76,10 +77,12 @@ func (s *Server) getAllMetrics(ctx context.Context, experiment, group string) (m
 
 	metrics := make(map[string]float64)
 	for _, sumKey := range sumKeys {
-		var exp, grp, sum, metricName string
-		if _, err := fmt.Sscanf(sumKey, "ab:metrics:%s:%s:%s:%s", &exp, &grp, &sum, &metricName); err != nil {
+		// key format: ab:metrics:{experiment}:{group}:sum:{metric}
+		parts := strings.Split(sumKey, ":")
+		if len(parts) < 6 {
 			continue
 		}
+		metricName := parts[5] // "conversion"
 		if metricName == "" {
 			continue
 		}

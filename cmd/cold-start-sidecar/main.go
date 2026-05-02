@@ -5,23 +5,21 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
-	"github.com/gorse-io/gorse/storage/data"
+	"github.com/gorse-io/gorse/config"
 	"github.com/gorse-io/gorse/storage"
+	"github.com/gorse-io/gorse/storage/data"
 )
 
 func main() {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	redisPassword := os.Getenv("REDIS_PASSWORD")
-	dataStoreURI := os.Getenv("DATA_STORE_URI")
-	tablePrefix := os.Getenv("TABLE_PREFIX")
-
-	if redisAddr == "" || redisPassword == "" || dataStoreURI == "" {
-		log.Fatal("REDIS_ADDR, REDIS_PASSWORD, and DATA_STORE_URI must be set")
+	cfg, err := config.LoadSidecarConfig()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	store, err := NewStore(redisAddr, redisPassword, dataStoreURI, tablePrefix)
+	store, err := NewStore(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.DataStore, "", cfg.RedisDB)
 	if err != nil {
 		log.Fatalf("failed to create store: %v", err)
 	}
@@ -38,13 +36,13 @@ func main() {
 		storage.WithMaxIdleConns(5),
 		storage.WithConnMaxLifetime(time.Hour),
 	}
-	db, err := data.Open(dataStoreURI, tablePrefix, dataOpts...)
+	db, err := data.Open(cfg.DataStore, "", dataOpts...)
 	if err != nil {
 		log.Fatalf("failed to open data store: %v", err)
 	}
 	defer db.Close()
 
-	pool := NewPool(store, db, tablePrefix)
+	pool := NewPool(store, db, "")
 	handler := NewHandler(pool)
 
 	mux := http.NewServeMux()
@@ -52,12 +50,18 @@ func main() {
 	mux.HandleFunc("GET /cold_start_pool/{user_id}", handler.ColdStartPool)
 	mux.HandleFunc("GET /first_screen/{user_id}", handler.FirstScreen)
 
-	addr := os.Getenv("HTTP_PORT")
-	if addr == "" {
-		addr = ":8091"
+	port := os.Getenv("HTTP_PORT")
+	if port == "" {
+		if cfg.HTTPPort > 0 {
+			port = ":" + strconv.Itoa(cfg.HTTPPort)
+		} else {
+			port = ":8091"
+		}
+	} else {
+		port = ":" + port
 	}
-	log.Printf("cold-start-sidecar listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	log.Printf("cold-start-sidecar listening on %s", port)
+	if err := http.ListenAndServe(port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
