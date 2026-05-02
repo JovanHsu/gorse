@@ -149,14 +149,12 @@ func (s *RestServer) LogFilter(req *restful.Request, resp *restful.Response, cha
 }
 
 func (s *RestServer) AuthFilter(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
-	// Apply global rate limit
-	if apiRateLimiter.TakeAvailable(1) == 0 {
-		log.ResponseLogger(resp).Error("rate limit exceeded")
-		if err := resp.WriteError(http.StatusTooManyRequests, errors.New("rate limited")); err != nil {
-			log.ResponseLogger(resp).Error("failed to write error", zap.Error(err))
-		}
-		return
-	}
+	// Rate limiting disabled: uncomment to enable
+	// if apiRateLimiter.TakeAvailable(1) == 0 {
+	// 	log.ResponseLogger(resp).Error("rate limit exceeded")
+	// 	resp.WriteEntity(map[string]string{"error": "rate limited"})
+	// 	return
+	// }
 	if strings.HasPrefix(req.SelectedRoute().Path(), "/api/health/") {
 		// Health check APIs don't need API key,
 		chain.ProcessFilter(req, resp)
