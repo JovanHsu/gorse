@@ -125,3 +125,10 @@ $RECYCLE.BIN/
 # Dashboard (Vue.js SPA) — managed separately at https://github.com/gorse-io/dashboard
 # Run `statik -f -src=dashboard/dist -dest=dashboard` to regenerate statik.go after updating dashboard
 dashboard/
+
+# Compiled binaries
+bin/
+
+# Runtime data
+logs/
+run/

@@ -226,3 +226,9 @@ min_quality_score = 0.3       # 最低质量分（0-1）
 require_verified = false       # 是否只推荐已认证用户
 active_within_days = 7         # 只推荐 N 天内有活跃的用户
 score_by = "quality_recency"   # 评分策略: quality / quality_recency / engagement
+
+# Sidecar 服务配置 (Dashboard 运营指标)
+[sidecar]
+ab_experiment = "http://localhost:8092"
+risk_health   = "http://localhost:8093"
+cold_start    = "http://localhost:8091"
