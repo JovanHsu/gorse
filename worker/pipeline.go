@@ -335,6 +335,18 @@ func (p *Pipeline) checkRecommendCacheOutOfDate(ctx context.Context, userId stri
 		return true
 	}
 
+	// Guard: if scores were deleted (e.g., by cache eviction) but digest/update_time remain,
+	// the cache is effectively stale. Without this check, the function returns false for
+	// a user whose scores were deleted, causing the recommendation loop to skip them.
+	items, err := p.CacheClient.SearchScores(ctx, cache.Recommend, userId, nil, 0, -1)
+	if err != nil {
+		log.Logger().Error("failed to check recommend cache", zap.String("user_id", userId), zap.Error(err))
+		return true
+	}
+	if len(items) == 0 {
+		return true
+	}
+
 	// 2. Read active time and update time in parallel (2 calls, no pipeline needed from interface).
 	activeTime, _ := p.CacheClient.Get(ctx, cache.Key(cache.LastModifyUserTime, userId)).Time()
 	recommendTime, err := p.CacheClient.Get(ctx, cache.Key(cache.RecommendUpdateTime, userId)).Time()

@@ -409,7 +409,7 @@ func (w *Worker) WorkerName() (string, error) {
 }
 
 func (w *Worker) pullUsers(peers []string, me string) (<-chan data.User, <-chan error) {
-	userChan := make(chan data.User)
+	userChan := make(chan data.User, batchSize)
 	errChan := make(chan error, 1)
 	go func() {
 		defer close(userChan)
