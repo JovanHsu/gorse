@@ -186,3 +186,40 @@ Gorse supports future-timestamped feedback and depends on synchronized clocks ac
 - Go 1.26, gRPC + Protocol Buffers, GORM, Zap logging, Cobra CLI, Viper config
 - Prometheus client, OpenTelemetry tracing
 - Gomlx for neural network execution, C-bata/goptuna for hyperparameter tuning
+
+### Phase 4+ Features
+
+**Profile Match Recommender** (`logics/profile_match.go`)
+- Filters candidates by age, city, purpose, and Haversine distance (km)
+- Reads user preferences from `Item.Labels` (`pref_age_min`, `pref_max_distance_km`, `latitude`, `longitude`)
+- Distance uses Haversine formula: `haversineKm(lat1, lon1, lat2, lon2)`
+
+**CVR Model** (`model/ctr/cvr.go`)
+- CVR = `chat_count / match_count` per item
+- Time Series metrics: `cvr_average`, `cvr_item_count` (reported every 15min by `master/cvr_reporter.go`)
+
+**A/B Experiments** (`cmd/ab-experiment/`, sidecar port 8092)
+- `GET /ab/assign/{user_id}` — assign user to experiment group
+- `POST /ab/metrics` — record metric for user
+- `GET /ab/report?experiment=name` — get experiment report
+
+**Risk Health** (`cmd/risk-health/`, sidecar port 8093)
+- `GET /api/health/fatigue_rate` — fatigue rate (% users with match in last 7 days)
+- `GET /api/health/pool_coverage` — recall pool coverage
+- `GET /api/health/sd_balance` — gender exposure balance
+
+**Cold Start** (`cmd/cold-start-sidecar/`, sidecar port 8091)
+- `GET /cold_start_pool/{user_id}` — high-quality verified users active in 3 months
+- `GET /first_screen/{user_id}` — recent items excluding overexposed ones
+
+**Dashboard Integration**
+- All sidecar APIs are proxied via `master/sidecar.go` → REST endpoints under `/api/dashboard/`
+- Dashboard UI pages at `/risk-health`, `/ab-experiments`, `/cold-start`
+
+### Updating Dashboard UI
+
+The Dashboard is a separate Vue.js SPA at `github.com/gorse-io/dashboard`. To update:
+1. Clone the dashboard repo: `git clone https://github.com/gorse-io/dashboard.git`
+2. Make UI changes, run `pnpm build` to update `dist/`
+3. Run `statik -f -src=dist -dest=.` to regenerate `statik.go`
+4. Copy the new `statik.go` into the gorse repo and commit
