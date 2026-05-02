@@ -24,8 +24,8 @@ type ComplianceResponse struct {
 }
 
 type PoolCoverageResponse struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Pools     map[string]map[string]PoolStat `json:"pools"`
+	Timestamp time.Time        `json:"timestamp"`
+	Pools     map[string]PoolStat `json:"pools"`
 }
 
 type PoolStat struct {

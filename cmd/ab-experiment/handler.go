@@ -12,9 +12,10 @@ type Server struct {
 	rdb *redis.Client
 }
 
-func NewServer(addr, password string) *Server {
+func NewServer(addr, username, password string) *Server {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     addr,
+		Username: username,
 		Password: password,
 		DB:       0,
 	})
@@ -27,6 +28,21 @@ func (s *Server) Close() error {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) listExperiments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vals, err := s.rdb.HGetAll(ctx, "ab:experiments").Result()
+	if err != nil {
+		log.Printf("list experiments error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	names := make([]string, 0, len(vals))
+	for name := range vals {
+		names = append(names, name)
+	}
+	json.NewEncoder(w).Encode(names)
 }
 
 func (s *Server) assign(w http.ResponseWriter, r *http.Request) {

@@ -13,38 +13,38 @@ func (s *Store) GetPoolCoverage(ctx context.Context) (*PoolCoverageResponse, err
 		return nil, err
 	}
 
-	pools := make(map[string]map[string]PoolStat)
+	// First pass: collect per-pool item counts
+	rawCounts := make(map[string]int64)
 	var totalCount int64
-
 	for _, key := range poolKeys {
 		// key format: recall:coverage:{pool_name}
-		poolName := key[17:] // remove "recall:coverage:" prefix
+		poolName := key[16:] // remove "recall:coverage:" prefix
 		vals, err := s.HGetAll(ctx, key)
 		if err != nil {
 			continue
 		}
-		poolMap := make(map[string]PoolStat)
 		var poolTotal int64
-		for name, countStr := range vals {
+		for _, countStr := range vals {
 			cnt, _ := strconv.ParseInt(countStr, 10, 64)
-			poolMap[name] = PoolStat{Count: cnt}
 			poolTotal += cnt
 		}
+		rawCounts[poolName] = poolTotal
 		totalCount += poolTotal
+	}
 
-		// Calculate coverage percentages
-		if poolTotal > 0 {
-			for name, ps := range poolMap {
-				ps.Coverage = float64(ps.Count) / float64(poolTotal)
-				poolMap[name] = ps
-			}
+	// Second pass: compute coverage as fraction of total
+	pools := make(map[string]PoolStat)
+	for poolName, poolTotal := range rawCounts {
+		var coverage float64
+		if totalCount > 0 {
+			coverage = float64(poolTotal) / float64(totalCount)
 		}
-		pools[poolName] = poolMap
+		pools[poolName] = PoolStat{Count: poolTotal, Coverage: coverage}
 	}
 
 	return &PoolCoverageResponse{
 		Timestamp: time.Now().UTC(),
-		Pools:    pools,
+		Pools:     pools,
 	}, nil
 }
 

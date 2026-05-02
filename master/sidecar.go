@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gorse-io/gorse/config"
@@ -86,27 +85,21 @@ type ABGroupReport struct {
 
 // GetExperiments scans Redis for all tracked experiment names.
 func (s *SidecarClient) GetExperiments(ctx context.Context) ([]string, error) {
-	if s.redisClient == nil {
+	if s.ABExperiment == "" {
 		return nil, nil
 	}
-	// Scan for ab:metrics:* keys and extract unique experiment names.
-	seen := make(map[string]struct{})
-	var experiments []string
-	iter := s.redisClient.Scan(ctx, 0, "ab:metrics:*", 100)
-	for iter.Next(ctx) {
-		key := iter.Val()
-		// Key format: ab:metrics:<experiment>:<group>:<type>:<metric>
-		parts := strings.SplitN(key, ":", 4)
-		if len(parts) >= 3 && parts[0] == "ab" && parts[1] == "metrics" {
-			exp := parts[2]
-			if _, ok := seen[exp]; !ok {
-				seen[exp] = struct{}{}
-				experiments = append(experiments, exp)
-			}
-		}
+	url := fmt.Sprintf("%s/ab/experiments", s.ABExperiment)
+	resp, err := s.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("ab-experiment unavailable: %w", err)
 	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("redis scan error: %w", err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ab-experiment returned %d", resp.StatusCode)
+	}
+	var experiments []string
+	if err := json.NewDecoder(resp.Body).Decode(&experiments); err != nil {
+		return nil, fmt.Errorf("invalid experiments response: %w", err)
 	}
 	return experiments, nil
 }
