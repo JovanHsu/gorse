@@ -26,6 +26,7 @@ import (
 	"github.com/c-bata/goptuna/tpe"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/gorse-io/gorse/common/expression"
+	"github.com/gorse-io/gorse/common/consts"
 	"github.com/gorse-io/gorse/common/log"
 	"github.com/gorse-io/gorse/common/monitor"
 	"github.com/gorse-io/gorse/common/parallel"
@@ -45,7 +46,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const batchSize = 10000
+const batchSize = consts.DefaultBatchSize
 
 func (m *Master) loadDataset(parent context.Context) (datasets Datasets, err error) {
 	ctx, span := m.tracer.Start(parent, "Load Dataset", 1)
