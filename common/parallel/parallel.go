@@ -235,7 +235,7 @@ func (ctx *Context) Attach() {
 
 func Detachable(ctx context.Context, nJobs, nWorkers, nMaxDetached int, worker func(*Context, int)) error {
 	sem := make(chan struct{}, nWorkers)
-	detachedSem := make(chan struct{}, nMaxDetached)
+	detachedSem := make(chan struct{}, max(nMaxDetached, nWorkers/2))
 	var wg sync.WaitGroup
 	for i := range nJobs {
 		select {
@@ -246,16 +246,14 @@ func Detachable(ctx context.Context, nJobs, nWorkers, nMaxDetached int, worker f
 		}
 
 		wg.Go(func() {
+			defer func() { <-sem }()
 			if ctx.Err() != nil {
-				<-sem
 				return
 			}
 			c := &Context{sem: sem, detachedSem: detachedSem}
 			worker(c, i)
 			if c.detached {
 				<-c.detachedSem
-			} else {
-				<-sem
 			}
 		})
 	}
