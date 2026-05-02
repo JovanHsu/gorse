@@ -77,11 +77,14 @@ explore_ratio = 0.3
 [[recommend.recall_pools]]
 name = "stable"
 lifecycle_types = ["stable", "light"]
-base_weight = 0.6
+base_weight = 5.0
 recommenders = [
   "collaborative",
   "user-to-user/neighbors",
   "item-to-item/neighbors",
+  "vip_quality_pool",
+  "profile_match",
+  "social_graph",
 ]
 explore_ratio = 0.2
 
@@ -106,6 +109,7 @@ recommenders = [
   "vip_quality_pool",
   "collaborative",
   "social_graph",
+  "profile_match",
 ]
 explore_ratio = 0.1
 
