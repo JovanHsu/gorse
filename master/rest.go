@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"github.com/araddon/dateparse"
 	mapset "github.com/deckarep/golang-set/v2"
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
@@ -428,7 +427,7 @@ func (m *Master) login(response http.ResponseWriter, request *http.Request) {
 		name := request.FormValue("user_name")
 		pass := request.FormValue("password")
 		if m.Config.Master.DashboardUserName != "" || m.Config.Master.DashboardPassword != "" {
-			if name != m.Config.Master.DashboardUserName || !validatePassword(pass, m.Config.Master.DashboardPassword) {
+			if name != m.Config.Master.DashboardUserName || pass != m.Config.Master.DashboardPassword {
 				http.Redirect(response, request, "login?msg=incorrect", http.StatusFound)
 				log.Logger().Info("POST /login", zap.Int("status_code", http.StatusUnauthorized))
 				return
@@ -472,11 +471,6 @@ func (m *Master) logout(response http.ResponseWriter, request *http.Request) {
 	log.Logger().Info(fmt.Sprintf("%s %s", request.Method, request.RequestURI), zap.Int("status_code", http.StatusFound))
 }
 
-// validatePassword checks if a password matches a bcrypt hash.
-func validatePassword(pass, hashed string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(pass))
-	return err == nil
-}
 
 func (m *Master) LoginFilter(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
 	if m.checkLogin(req.Request) {
@@ -511,7 +505,7 @@ func (m *Master) checkLogin(request *http.Request) bool {
 			if err = cookieHandler.Decode("session", sessionCookie.Value, &cookieValue); err == nil {
 				userName := cookieValue["user_name"]
 				password := cookieValue["password"]
-				if userName == m.Config.Master.DashboardUserName && validatePassword(password, m.Config.Master.DashboardPassword) {
+				if userName == m.Config.Master.DashboardUserName && password == m.Config.Master.DashboardPassword {
 					return true
 				}
 			}
