@@ -16,8 +16,10 @@ package master
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,6 +59,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sashabaranov/go-openai"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -320,17 +323,17 @@ func (fs *SinglePageAppFileSystem) Open(name string) (http.File, error) {
 func (m *Master) StartHttpServer() {
 	m.CreateWebService()
 	container := restful.NewContainer()
-	container.Handle("/", http.HandlerFunc(m.dashboard))
-	container.Handle("/login", http.HandlerFunc(m.login))
-	container.Handle("/logout", http.HandlerFunc(m.logout))
-	container.Handle("/callback/oauth2", http.HandlerFunc(m.handleOAuth2Callback))
-	container.Handle("/api/purge", http.HandlerFunc(m.purge))
-	container.Handle("/api/bulk/users", http.HandlerFunc(m.importExportUsers))
-	container.Handle("/api/bulk/items", http.HandlerFunc(m.importExportItems))
-	container.Handle("/api/bulk/feedback", http.HandlerFunc(m.importExportFeedback))
-	container.Handle("/api/dump", http.HandlerFunc(m.dump))
-	container.Handle("/api/restore", http.HandlerFunc(m.restore))
-	container.Handle("/api/chat", http.HandlerFunc(m.chat))
+	container.Handle("/", SecurityHeadersHandler(http.HandlerFunc(m.dashboard)))
+	container.Handle("/login", SecurityHeadersHandler(http.HandlerFunc(m.login)))
+	container.Handle("/logout", SecurityHeadersHandler(http.HandlerFunc(m.logout)))
+	container.Handle("/callback/oauth2", SecurityHeadersHandler(http.HandlerFunc(m.handleOAuth2Callback)))
+	container.Handle("/api/purge", SecurityHeadersHandler(http.HandlerFunc(m.purge)))
+	container.Handle("/api/bulk/users", SecurityHeadersHandler(http.HandlerFunc(m.importExportUsers)))
+	container.Handle("/api/bulk/items", SecurityHeadersHandler(http.HandlerFunc(m.importExportItems)))
+	container.Handle("/api/bulk/feedback", SecurityHeadersHandler(http.HandlerFunc(m.importExportFeedback)))
+	container.Handle("/api/dump", SecurityHeadersHandler(http.HandlerFunc(m.dump)))
+	container.Handle("/api/restore", SecurityHeadersHandler(http.HandlerFunc(m.restore)))
+	container.Handle("/api/chat", SecurityHeadersHandler(http.HandlerFunc(m.chat)))
 	m.RestServer.StartHttpServer(container)
 }
 
@@ -400,13 +403,53 @@ func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(fn)
 }
 
+// SecurityHeadersHandler adds security-related HTTP response headers.
+func SecurityHeadersHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// generateRandomState creates a cryptographically random state string for OIDC state parameter.
+func generateRandomState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
 func (m *Master) dashboard(response http.ResponseWriter, request *http.Request) {
 	_, err := staticFileSystem.Open(request.RequestURI)
 	if request.RequestURI == "/" || os.IsNotExist(err) {
 		if !m.checkLogin(request) {
 			if m.Config.OIDC.Enable {
-				// Redirect to OIDC login
-				http.Redirect(response, request, m.oauth2Config.AuthCodeURL(""), http.StatusFound)
+				// Generate state and nonce for OIDC security
+				state, err := generateRandomState()
+				if err != nil {
+					server.InternalServerError(restful.NewResponse(response), err)
+					return
+				}
+				nonce, err := generateRandomState()
+				if err != nil {
+					server.InternalServerError(restful.NewResponse(response), err)
+					return
+				}
+				// Store state and nonce in session cookie
+				session := map[string]string{"oidc_state": state, "oidc_nonce": nonce}
+				if encoded, err := cookieHandler.Encode("session", session); err != nil {
+					server.InternalServerError(restful.NewResponse(response), err)
+					return
+				} else {
+					http.SetCookie(response, &http.Cookie{Name: "session", Value: encoded, Path: "/"})
+				}
+				// Redirect to OIDC login with state and nonce
+				url := m.oauth2Config.AuthCodeURL(state, oauth2.SetAuthURLParam("nonce", nonce))
+				http.Redirect(response, request, url, http.StatusFound)
 			} else {
 				http.Redirect(response, request, "/login", http.StatusFound)
 				log.Logger().Info(fmt.Sprintf("%s %s", request.Method, request.URL), zap.Int("status_code", http.StatusFound))
@@ -2024,7 +2067,23 @@ func (m *Master) restore(response http.ResponseWriter, request *http.Request) {
 }
 
 func (m *Master) handleOAuth2Callback(w http.ResponseWriter, r *http.Request) {
-	// Verify state and errors.
+	// Verify state parameter to prevent CSRF attacks
+	sessionCookie, err := r.Cookie("session")
+	if err != nil {
+		server.InternalServerError(restful.NewResponse(w), errors.New("missing session cookie"))
+		return
+	}
+	var session map[string]string
+	if err := cookieHandler.Decode("session", sessionCookie.Value, &session); err != nil {
+		server.InternalServerError(restful.NewResponse(w), errors.New("invalid session cookie"))
+		return
+	}
+	state := r.URL.Query().Get("state")
+	if state == "" || state != session["oidc_state"] {
+		server.InternalServerError(restful.NewResponse(w), errors.New("invalid state parameter"))
+		return
+	}
+	// Exchange code for token
 	oauth2Token, err := m.oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		server.InternalServerError(restful.NewResponse(w), err)
@@ -2040,6 +2099,11 @@ func (m *Master) handleOAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	idToken, err := m.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		server.InternalServerError(restful.NewResponse(w), err)
+		return
+	}
+	// Verify nonce to prevent replay attacks
+	if idToken.Nonce != session["oidc_nonce"] {
+		server.InternalServerError(restful.NewResponse(w), errors.New("invalid nonce"))
 		return
 	}
 	// Extract custom claims

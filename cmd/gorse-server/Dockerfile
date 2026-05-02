@@ -32,8 +32,10 @@ FROM scratch
 
 COPY --from=0 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
+RUN addgroup -g 1000 gorse && adduser -u 1000 -G gorse -s /bin/sh -D gorse
+
 COPY --from=0 /src/cmd/gorse-server/gorse-server /usr/bin/gorse-server
 
-ENV USER=root
+USER gorse
 
 ENTRYPOINT ["/usr/bin/gorse-server"]
