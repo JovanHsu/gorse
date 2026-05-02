@@ -173,8 +173,10 @@ type RecommendConfig struct {
 	RecallPools  []RecallPoolConfig `mapstructure:"recall_pools" validate:"dive"`
 	SupplyDemand SupplyDemandConfig `mapstructure:"supply_demand"`
 	Fatigue     FatigueConfig     `mapstructure:"fatigue"`
-	Quality      QualityConfig     `mapstructure:"quality"`
-	VIP          VIPConfig         `mapstructure:"vip"`
+	Quality       QualityConfig       `mapstructure:"quality"`
+	VIP           VIPConfig           `mapstructure:"vip"`
+	Behavior      BehaviorConfig      `mapstructure:"behavior"`
+	ItemStats     ItemStatsConfig     `mapstructure:"item_stats"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -447,6 +449,28 @@ type VIPConfig struct {
 	ManualOverride bool  `mapstructure:"manual_override"`   // allow admin to manually set VIP via label
 }
 
+// BehaviorConfig controls behavioral feature computation and explore/exploit injection.
+type BehaviorConfig struct {
+	Enabled           bool    `mapstructure:"enabled"`
+	RedisAddr        string  `mapstructure:"redis_addr"`
+	RedisPassword    string  `mapstructure:"redis_password"`
+	MinSwipeCount    int     `mapstructure:"min_swipe_count"`     // minimum swipes before computing stats (default 10)
+	StabilityWindow  int     `mapstructure:"stability_window"`    // window for stability calculation in swipes (default 20)
+	StatsCacheTTL    int     `mapstructure:"stats_cache_ttl"`    // TTL in seconds for stats in Redis (default 300)
+	DefaultExploreRatio float64 `mapstructure:"default_explore_ratio"` // fallback explore ratio for users without computed stats
+}
+
+// ItemStatsConfig controls item-level quality stats computation.
+type ItemStatsConfig struct {
+	Enabled          bool    `mapstructure:"enabled"`
+	RedisAddr        string  `mapstructure:"redis_addr"`
+	RedisPassword    string  `mapstructure:"redis_password"`
+	MinExposureCount int     `mapstructure:"min_exposure_count"` // minimum exposures before computing stats
+	StatsCacheTTL    int     `mapstructure:"stats_cache_ttl"`   // TTL in seconds
+	MinLikeRate      float64 `mapstructure:"min_like_rate"`    // minimum like rate to not be filtered (0-1)
+	MaxBlockRate     float64 `mapstructure:"max_block_rate"`   // maximum block rate to not be filtered (0-1)
+}
+
 type TracingConfig struct {
 	EnableTracing     bool    `mapstructure:"enable_tracing"`
 	Exporter          string  `mapstructure:"exporter" validate:"oneof=zipkin otlp otlphttp"`
@@ -589,6 +613,20 @@ func GetDefaultConfig() *Config {
 				VIPLabelKey:    "tier",
 				VIPLabelValue:  "vip",
 				ManualOverride: true,
+			},
+			Behavior: BehaviorConfig{
+				Enabled:             false,
+				MinSwipeCount:       10,
+				StabilityWindow:     20,
+				StatsCacheTTL:       300,
+				DefaultExploreRatio: 0.2,
+			},
+			ItemStats: ItemStatsConfig{
+				Enabled:          false,
+				MinExposureCount: 5,
+				StatsCacheTTL:    600,
+				MinLikeRate:      0.05,
+				MaxBlockRate:     0.1,
 			},
 		},
 		Tracing: TracingConfig{
@@ -744,6 +782,18 @@ func setDefault() {
 	viper.SetDefault("recommend.vip.vip_label_key", defaultConfig.Recommend.VIP.VIPLabelKey)
 	viper.SetDefault("recommend.vip.vip_label_value", defaultConfig.Recommend.VIP.VIPLabelValue)
 	viper.SetDefault("recommend.vip.manual_override", defaultConfig.Recommend.VIP.ManualOverride)
+	// [recommend.behavior]
+	viper.SetDefault("recommend.behavior.enabled", defaultConfig.Recommend.Behavior.Enabled)
+	viper.SetDefault("recommend.behavior.min_swipe_count", defaultConfig.Recommend.Behavior.MinSwipeCount)
+	viper.SetDefault("recommend.behavior.stability_window", defaultConfig.Recommend.Behavior.StabilityWindow)
+	viper.SetDefault("recommend.behavior.stats_cache_ttl", defaultConfig.Recommend.Behavior.StatsCacheTTL)
+	viper.SetDefault("recommend.behavior.default_explore_ratio", defaultConfig.Recommend.Behavior.DefaultExploreRatio)
+	// [recommend.item_stats]
+	viper.SetDefault("recommend.item_stats.enabled", defaultConfig.Recommend.ItemStats.Enabled)
+	viper.SetDefault("recommend.item_stats.min_exposure_count", defaultConfig.Recommend.ItemStats.MinExposureCount)
+	viper.SetDefault("recommend.item_stats.stats_cache_ttl", defaultConfig.Recommend.ItemStats.StatsCacheTTL)
+	viper.SetDefault("recommend.item_stats.min_like_rate", defaultConfig.Recommend.ItemStats.MinLikeRate)
+	viper.SetDefault("recommend.item_stats.max_block_rate", defaultConfig.Recommend.ItemStats.MaxBlockRate)
 	// [tracing]
 	viper.SetDefault("tracing.exporter", defaultConfig.Tracing.Exporter)
 	viper.SetDefault("tracing.sampler", defaultConfig.Tracing.Sampler)

@@ -141,3 +141,25 @@ enabled = true
 vip_label_key = "tier"
 vip_label_value = "vip"
 manual_override = true
+
+# 行为特征配置 (Phase 2)
+# 计算用户行为统计并用于探索/利用决策
+[recommend.behavior]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+min_swipe_count = 10          # 至少 10 次划卡后才计算统计
+stability_window = 20        # 稳定性计算窗口大小
+stats_cache_ttl = 300        # Redis 缓存 TTL (秒)
+default_explore_ratio = 0.2  # 默认探索比例: 20% 探索
+
+# 物品质量统计配置 (Phase 2)
+# 计算被推荐物品的质量指标，用于过滤低质量物品
+[recommend.item_stats]
+enabled = true
+redis_addr = "8.148.255.41:6380"
+redis_password = "Abcd.1234"
+min_exposure_count = 5       # 至少 5 次曝光后才计算统计
+stats_cache_ttl = 600        # Redis 缓存 TTL (秒)
+min_like_rate = 0.05         # 最低点赞率，低于此值则过滤
+max_block_rate = 0.1        # 最高屏蔽率，高于此值则过滤

@@ -65,6 +65,10 @@ type Recommender struct {
 	// Supply/demand balance support (Phase 4)
 	supplyDemandTracker *SupplyDemandTracker
 	redisClient        *redis.Client
+
+	// Behavior feature support (Phase 2)
+	behaviorTracker *BehaviorStatsTracker
+	itemStatsTracker *ItemStatsTracker
 }
 
 type RecommenderFunc func(ctx context.Context) ([]cache.Score, string, error)
@@ -151,6 +155,15 @@ func NewRecommenderWithLifecycle(
 			dataClient,
 		)
 	}
+	// Set up behavior stats trackers if enabled (Phase 2)
+	if redisClient != nil {
+		if config.Behavior.Enabled {
+			recommender.behaviorTracker = NewBehaviorStatsTracker(config.Behavior, redisClient)
+		}
+		if config.ItemStats.Enabled {
+			recommender.itemStatsTracker = NewItemStatsTracker(config.ItemStats, redisClient)
+		}
+	}
 	return recommender, nil
 }
 
@@ -221,6 +234,11 @@ func (r *Recommender) Recommend(ctx context.Context, limit int) (result []cache.
 				zap.String("user_id", r.userId),
 				zap.Error(err))
 			// Non-fatal: continue without supply/demand boost
+		}
+		// Phase 2: Apply item quality filtering.
+		// Filter out items with low like rate or high block rate based on computed quality stats.
+		if r.itemStatsTracker != nil {
+			result = r.itemStatsTracker.FilterByQuality(result)
 		}
 		return result, nil
 	}
@@ -339,6 +357,49 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		}
 	}
 
+	// Phase 1.5 (Phase 2): Explore/exploit injection.
+	// Collect fresh explore candidates from latest recommender.
+	// These are items not yet seen by the user, injected based on ExploreRatio.
+	var exploreCandidates []cache.Score
+	exploreRatio := 0.0
+	if r.lifecycleProfile != nil {
+		exploreRatio = r.lifecycleProfile.ExploreRatio
+	}
+	if exploreRatio > 0 {
+		// Use the behavior tracker's computed explore ratio if available
+		if r.behaviorTracker != nil {
+			effectiveRatio := r.behaviorTracker.GetExploreRatio(ctx, r.userId)
+			if effectiveRatio > exploreRatio {
+				exploreRatio = effectiveRatio
+			}
+		}
+		// Get fresh items from latest recommender (not yet in exclude set)
+		latestItems, _, _ := r.recommendLatest(ctx)
+		inPrimary := make(map[string]bool)
+		for id := range candidates {
+			inPrimary[id] = true
+		}
+		for _, item := range latestItems {
+			if !inPrimary[item.Id] && !r.excludeSet.Contains(item.Id) {
+				exploreCandidates = append(exploreCandidates, item)
+				if len(exploreCandidates) >= limit*2 {
+					break
+				}
+			}
+		}
+		if len(exploreCandidates) > 0 {
+			// Shuffle for randomness
+			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+			rng.Shuffle(len(exploreCandidates), func(i, j int) {
+				exploreCandidates[i], exploreCandidates[j] = exploreCandidates[j], exploreCandidates[i]
+			})
+			log.Logger().Info("explore candidates collected",
+				zap.String("user_id", r.userId),
+				zap.Float64("explore_ratio", exploreRatio),
+				zap.Int("explore_count", len(exploreCandidates)))
+		}
+	}
+
 	// Phase 2: Batch query items to get gender for cross-filtering
 	itemIds := make([]string, 0, len(candidates))
 	for id := range candidates {
@@ -433,7 +494,7 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 			zap.String("item_gender", g))
 	}
 
-	// Trim to limit
+	// Trim to limit, then interleave explore candidates
 	result := make([]cache.Score, 0, limit)
 	for _, s := range sorted {
 		if r.excludeSet.Contains(s.Id) {
@@ -443,6 +504,64 @@ func (r *Recommender) recommendWithPools(ctx context.Context, limit int) ([]cach
 		result = append(result, s)
 		if limit > 0 && len(result) >= limit {
 			break
+		}
+	}
+
+	// Interleave explore candidates based on explore_ratio
+	if len(exploreCandidates) > 0 && exploreRatio > 0 && limit > 0 {
+		exploreCount := int(float64(limit) * exploreRatio)
+		if exploreCount > len(exploreCandidates) {
+			exploreCount = len(exploreCandidates)
+		}
+		if exploreCount > 0 {
+			// Build a set of items already in result
+			inResult := make(map[string]bool)
+			for _, s := range result {
+				inResult[s.Id] = true
+			}
+			// Collect unique explore candidates not already in result
+			var uniqueExplore []cache.Score
+			for _, ec := range exploreCandidates {
+				if !inResult[ec.Id] {
+					uniqueExplore = append(uniqueExplore, ec)
+					inResult[ec.Id] = true
+					if len(uniqueExplore) >= exploreCount {
+						break
+					}
+				}
+			}
+			// Interleave: insert explore item every (limit/exploreCount) positions
+			if len(uniqueExplore) > 0 {
+				step := len(result) / (len(uniqueExplore) + 1)
+				if step < 1 {
+					step = 1
+				}
+				interleaved := make([]cache.Score, 0, len(result)+len(uniqueExplore))
+				expIdx := 0
+				for i, s := range result {
+					interleaved = append(interleaved, s)
+					// Insert explore item every `step` positions
+					if expIdx < len(uniqueExplore) && (i+1)%step == 0 && len(interleaved) < limit+len(uniqueExplore) {
+						interleaved = append(interleaved, uniqueExplore[expIdx])
+						expIdx++
+					}
+				}
+				// Append remaining explore items at the end
+				for expIdx < len(uniqueExplore) && len(interleaved) < limit+len(uniqueExplore) {
+					interleaved = append(interleaved, uniqueExplore[expIdx])
+					expIdx++
+				}
+				// Trim to original limit
+				if len(interleaved) > limit {
+					interleaved = interleaved[:limit]
+				}
+				log.Logger().Info("explore items interleaved",
+					zap.String("user_id", r.userId),
+					zap.Int("primary_count", len(result)),
+					zap.Int("explore_count", len(uniqueExplore)),
+					zap.Float64("explore_ratio", exploreRatio))
+				result = interleaved
+			}
 		}
 	}
 
