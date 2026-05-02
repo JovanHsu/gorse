@@ -24,7 +24,6 @@ import (
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 )
 
 // VIPQualityConfig controls the VIP quality pool recommender.
@@ -92,11 +91,6 @@ func (r *Recommender) recommendVIPQualityPool(ctx context.Context) ([]cache.Scor
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].Score > scored[j].Score
 	})
-
-	zap.L().Debug("vip_quality_pool",
-		zap.String("user_id", r.userId),
-		zap.Int("candidates", len(candidates)),
-		zap.Int("results", len(scored)))
 
 	return scored, VIPQualityPoolRecommender, nil
 }

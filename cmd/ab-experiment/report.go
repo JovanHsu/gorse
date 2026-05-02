@@ -64,23 +64,30 @@ func (s *Server) generateReport(ctx context.Context, experiment string) (*Report
 }
 
 func (s *Server) getAllMetrics(ctx context.Context, experiment, group string) (map[string]float64, error) {
-	sumKeys, err := s.rdb.Keys(ctx, fmt.Sprintf("ab:metrics:%s:%s:sum:*", experiment, group)).Result()
-	if err != nil {
+	pattern := fmt.Sprintf("ab:metrics:%s:%s:sum:*", experiment, group)
+	var sumKeys []string
+	iter := s.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		sumKeys = append(sumKeys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
 		return nil, err
 	}
 
 	metrics := make(map[string]float64)
 	for _, sumKey := range sumKeys {
-		metric := ""
-		fmt.Sscanf(sumKey, "ab:metrics:%s:%s:sum:%s", &metric, &metric, &metric)
-		if metric == "" {
+		var exp, grp, sum, metricName string
+		if _, err := fmt.Sscanf(sumKey, "ab:metrics:%s:%s:%s:%s", &exp, &grp, &sum, &metricName); err != nil {
 			continue
 		}
-		val, err := getRunningAverage(ctx, s.rdb, experiment, group, metric)
+		if metricName == "" {
+			continue
+		}
+		val, err := getRunningAverage(ctx, s.rdb, experiment, group, metricName)
 		if err != nil {
 			continue
 		}
-		metrics[metric] = val
+		metrics[metricName] = val
 	}
 	return metrics, nil
 }

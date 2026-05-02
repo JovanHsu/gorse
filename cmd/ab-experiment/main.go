@@ -8,12 +8,9 @@ import (
 
 func main() {
 	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "8.148.255.41:6380"
-	}
 	password := os.Getenv("REDIS_PASSWORD")
-	if password == "" {
-		password = "Abcd.1234"
+	if addr == "" || password == "" {
+		log.Fatal("REDIS_ADDR and REDIS_PASSWORD must be set")
 	}
 
 	srv := NewServer(addr, password)
@@ -24,8 +21,12 @@ func main() {
 	http.HandleFunc("POST /ab/metrics", srv.recordMetrics)
 	http.HandleFunc("GET /ab/report", srv.report)
 
-	log.Println("AB experiment sidecar listening on :8092")
-	if err := http.ListenAndServe(":8092", nil); err != nil {
+	port := os.Getenv("HTTP_PORT")
+	if port == "" {
+		port = ":8092"
+	}
+	log.Printf("AB experiment sidecar listening on %s", port)
+	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Fatal(err)
 	}
 }

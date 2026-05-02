@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -63,32 +64,20 @@ func (s *Store) GetItemStats(ctx context.Context, itemID string) (*ItemStats, er
 }
 
 func (s *Store) GetUserAge(ctx context.Context, userID string) (int, error) {
-	var age int
 	var labels string
 	err := s.postgres.QueryRowContext(ctx,
 		"SELECT labels FROM users WHERE user_id = $1", userID).Scan(&labels)
 	if err != nil {
 		return 0, err
 	}
-	// Parse age from labels JSON, e.g., {"age": 25}
-	for i := 0; i < len(labels)-5; i++ {
-		if labels[i:i+5] == `"age":` {
-			j := i + 5
-			for j < len(labels) && (labels[j] < '0' || labels[j] > '9') {
-				j++
-			}
-			num := ""
-			for j < len(labels) && labels[j] >= '0' && labels[j] <= '9' {
-				num += string(labels[j])
-				j++
-			}
-			if num != "" {
-				age, _ = strconv.Atoi(num)
-			}
-			break
-		}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(labels), &m); err != nil {
+		return 0, err
 	}
-	return age, nil
+	if v, ok := m["age"].(float64); ok {
+		return int(v), nil
+	}
+	return 0, nil
 }
 
 func (s *Store) GetUserQualityFlag(ctx context.Context, userID string) (bool, error) {
@@ -98,10 +87,16 @@ func (s *Store) GetUserQualityFlag(ctx context.Context, userID string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	// Check for "is_high_quality":false
-	for i := 0; i < len(labels)-17; i++ {
-		if labels[i:i+17] == `"is_high_quality":` {
-			return labels[i+17:i+22] == "false", nil
+	var m map[string]any
+	if err := json.Unmarshal([]byte(labels), &m); err != nil {
+		return false, err
+	}
+	if v, ok := m["is_high_quality"]; ok {
+		if b, ok := v.(bool); ok {
+			return b, nil
+		}
+		if f, ok := v.(float64); ok {
+			return f == 1, nil
 		}
 	}
 	return true, nil
@@ -114,9 +109,16 @@ func (s *Store) GetItemQualityFlag(ctx context.Context, itemID string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	for i := 0; i < len(labels)-17; i++ {
-		if labels[i:i+17] == `"is_high_quality":` {
-			return labels[i+17:i+22] == "false", nil
+	var m map[string]any
+	if err := json.Unmarshal([]byte(labels), &m); err != nil {
+		return false, err
+	}
+	if v, ok := m["is_high_quality"]; ok {
+		if b, ok := v.(bool); ok {
+			return b, nil
+		}
+		if f, ok := v.(float64); ok {
+			return f == 1, nil
 		}
 	}
 	return true, nil

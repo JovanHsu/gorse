@@ -7,9 +7,12 @@ import (
 )
 
 func main() {
-	redisAddr := getEnv("REDIS_ADDR", "8.148.255.41:6380")
-	redisPassword := getEnv("REDIS_PASSWORD", "Abcd.1234")
-	postgresURI := getEnv("POSTGRES_URI", "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable")
+	redisAddr := os.Getenv("REDIS_ADDR")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	postgresURI := os.Getenv("POSTGRES_URI")
+	if redisAddr == "" || redisPassword == "" || postgresURI == "" {
+		log.Fatal("REDIS_ADDR, REDIS_PASSWORD, and POSTGRES_URI must be set")
+	}
 
 	store, err := NewStore(redisAddr, redisPassword, postgresURI)
 	if err != nil {
@@ -26,13 +29,10 @@ func main() {
 	http.HandleFunc("/api/health/fatigue_rate", h.FatigueRate)
 	http.HandleFunc("/api/health/sd_balance", h.SDBalance)
 
-	log.Println("risk-health-sidecar listening on :8093")
-	log.Fatal(http.ListenAndServe(":8093", nil))
-}
-
-func getEnv(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+	port := os.Getenv("HTTP_PORT")
+	if port == "" {
+		port = ":8093"
 	}
-	return fallback
+	log.Printf("risk-health-sidecar listening on %s", port)
+	log.Fatal(http.ListenAndServe(port, nil))
 }

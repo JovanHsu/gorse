@@ -20,6 +20,7 @@ import (
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/gorse-io/gorse/common/expression"
+	"github.com/gorse-io/gorse/common/log"
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/samber/lo"
@@ -103,7 +104,11 @@ func (r *Recommender) recommendSocialGraph(ctx context.Context) ([]cache.Score, 
 	}
 
 	if len(myMatches) >= matchThreshold && cfg.FoFMaxHops >= 2 {
-		return r.socialGraphFoF(ctx, cfg, myMatches, excludeSet)
+		log.Logger().Warn("social_graph: using FoF mode",
+		zap.String("user_id", r.userId),
+		zap.Int("matches", len(myMatches)),
+		zap.Int("threshold", matchThreshold))
+	return r.socialGraphFoF(ctx, cfg, myMatches, excludeSet)
 	}
 	return r.socialGraphOverlap(ctx, cfg, myMatches, excludeSet)
 }
@@ -228,8 +233,15 @@ func (r *Recommender) socialGraphFoF(
 	}
 
 	if len(itemScore) == 0 {
+		log.Logger().Warn("social_graph FoF: no FoF items",
+			zap.String("user_id", r.userId),
+			zap.Int("hop1", len(hop1Ids)))
 		return nil, "", nil
 	}
+	log.Logger().Warn("social_graph FoF: found",
+		zap.String("user_id", r.userId),
+		zap.Int("hop1", len(hop1Ids)),
+		zap.Int("items", len(itemScore)))
 
 	results := lo.MapToSlice(itemScore, func(itemId string, count int) cache.Score {
 		return cache.Score{Id: itemId, Score: float64(count)}

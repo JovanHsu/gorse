@@ -10,12 +10,9 @@ import (
 func (s *Server) recordMetric(ctx context.Context, experiment, userID, metric string, value float64, group string) error {
 	sumKey := fmt.Sprintf("ab:metrics:%s:%s:sum:%s", experiment, group, metric)
 	countKey := fmt.Sprintf("ab:metrics:%s:%s:count:%s", experiment, group, metric)
-	sampleKey := fmt.Sprintf("ab:metrics:%s:%s:sample_size", experiment, group)
-
 	pipe := s.rdb.Pipeline()
 	pipe.HIncrBy(ctx, sumKey, metric, int64(value*1000000))
 	pipe.HIncrBy(ctx, countKey, metric, 1)
-	pipe.HIncrBy(ctx, sampleKey, metric, 1)
 	_, err := pipe.Exec(ctx)
 	return err
 }

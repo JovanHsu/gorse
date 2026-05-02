@@ -21,6 +21,7 @@ import (
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/gorse-io/gorse/common/log"
 	"github.com/gorse-io/gorse/storage/cache"
 	"github.com/gorse-io/gorse/storage/data"
 	"github.com/juju/errors"
@@ -254,7 +255,10 @@ func (r *Recommender) fetchProfileCandidates(
 		for len(allCandidates) < cfg.MaxResults*2 {
 			_, items, err := r.dataClient.GetItems(ctx, cursor, batchSize, nil)
 			if err != nil {
-				return nil, errors.Trace(err)
+				log.Logger().Warn("fetchProfileCandidates: GetItems failed, skipping batch",
+					zap.String("cursor", cursor),
+					zap.Error(err))
+				break
 			}
 			if len(items) == 0 {
 				break
