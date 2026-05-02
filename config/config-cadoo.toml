@@ -204,3 +204,13 @@ fof_max_hops = 2              # FoF 跳数，2 = 启用 FoF
 fof_max_friends_per_node = 30 # 每个 1-hop 朋友最多扩展多少 2-hop
 match_feedback_type = "match"  # match 事件作为社交边
 positive_feedback_types = ["like"]  # 正向互动在图中传播
+
+# 资料驱动匹配 (Phase 4+)
+# 基于用户资料偏好（年龄、城市、目的）过滤候选，按资料完整度/活跃度打分
+[recommend.profile_match]
+min_age = 18                  # 最低年龄
+max_age = 65                  # 最高年龄
+prefer_verified = true        # 优先推荐已认证用户
+score_by = "combined"          # 评分策略: profile_completeness / recency / combined
+active_within_days = 30        # 只推荐 N 天内有活跃的用户（0 = 不过滤）
+max_results = 200             # 最大候选数量（性能和召回平衡）

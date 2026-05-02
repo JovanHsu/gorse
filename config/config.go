@@ -181,6 +181,7 @@ type RecommendConfig struct {
 	SuccessRate   SuccessRateConfig   `mapstructure:"success_rate"`
 	SessionFatigue SessionFatigueConfig `mapstructure:"session_fatigue"`
 	SocialGraph   SocialGraphConfig   `mapstructure:"social_graph"`
+	ProfileMatch ProfileMatchConfig `mapstructure:"profile_match"`
 }
 
 func (r *RecommendConfig) ListRecommenders() []string {
@@ -535,6 +536,19 @@ type SocialGraphConfig struct {
 	FoFMaxFriendsPerNode int     `mapstructure:"fof_max_friends_per_node"` // max 2-hop friends per 1-hop (default 30)
 	MatchFeedbackType   string   `mapstructure:"match_feedback_type"`    // feedback type for matches (default "match")
 	PositiveFeedbackTypes []string `mapstructure:"positive_feedback_types"` // positive interactions to propagate (default ["like"])
+}
+
+// ProfileMatchConfig controls the profile-based matching recommender.
+type ProfileMatchConfig struct {
+	MinAge                  int     `mapstructure:"min_age"`                     // minimum age filter (default 18)
+	MaxAge                  int     `mapstructure:"max_age"`                     // maximum age filter (default 65)
+	MaxDistanceKm           int     `mapstructure:"max_distance_km"`              // distance limit in km (default 0 = no limit)
+	MinProfileCompleteness  float64 `mapstructure:"min_profile_completeness"`     // min profile completeness 0-1 (default 0)
+	MinPhotoCount           int     `mapstructure:"min_photo_count"`              // min photos required (default 0)
+	PreferVerified          bool    `mapstructure:"prefer_verified"`               // boost verified users (default true)
+	ActiveWithinDays        int     `mapstructure:"active_within_days"`          // filter out inactive users (default 0 = disabled)
+	ScoreBy                 string  `mapstructure:"score_by"`                     // "profile_completeness", "recency", "combined" (default "combined")
+	MaxResults              int     `mapstructure:"max_results"`                  // max DB candidates to fetch (default 200)
 }
 
 type OpenAIConfig struct {
