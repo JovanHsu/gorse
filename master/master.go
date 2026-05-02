@@ -99,6 +99,9 @@ type Master struct {
 	ticker    *time.Ticker
 	scheduled chan struct{}
 	cancel    context.CancelFunc
+
+	// background computation services
+	bgServices *BackgroundServiceManager
 }
 
 // NewMaster creates a master node.
@@ -205,6 +208,12 @@ func (m *Master) Serve() {
 		log.Logger().Fatal("failed to init database", zap.Error(err))
 	}
 
+	// Create and start background computation services.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	m.bgServices = NewBackgroundServiceManager(m.Config.Recommend, m.RedisClient, m.DataClient)
+	m.bgServices.Start(ctx)
+
 	// load recommend config
 	metaStr, err := m.metaStore.Get(meta.RECOMMEND_CONFIG)
 	if err != nil && !errors.Is(err, errors.NotFound) {
@@ -306,6 +315,14 @@ func (m *Master) Serve() {
 }
 
 func (m *Master) Shutdown() {
+	// stop background services first
+	if m.bgServices != nil {
+		m.bgServices.Stop()
+	}
+	// cancel background context
+	if m.cancel != nil {
+		m.cancel()
+	}
 	// stop http server
 	err := m.HttpServer.Shutdown(context.TODO())
 	if err != nil {
