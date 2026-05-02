@@ -1,6 +1,8 @@
 [database]
 cache_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
 data_store = "postgres://tajian:Postgres@1234@pyramidtip.pg.polardb.rds.aliyuncs.com:5432/recommend?sslmode=disable"
+# "tt-bp1cqijyjau70dpp8pd.tairskv.rds.aliyuncs.com:6379" default:W$=ncmArt!rUe8l@UGwCuzgBV83+# database: 1
+# redis_store = ""  # not a valid config key, commented out to avoid TOML parse error
 
 [master]
 port = 8086
